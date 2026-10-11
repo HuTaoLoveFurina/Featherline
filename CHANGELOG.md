@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The icon beside the estradiol title on Home now opens "About this estimate", which lists the routes behind the estimate and the estimate disclaimer. It replaces the info button.
+- The icon beside the estradiol title on Home now opens "About this estimate", which lists the routes behind the estimate and the estimate disclaimer. A calibrated route that makes up only a small share of the curve is marked "Small share". It replaces the info button.
 
 ### Fixed
 
 - Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its prediction interval describe the same fit.
 - When every logged estradiol dose is more than 180 days older than your earliest estradiol result, calibration now reports those results as below the modeled signal instead of saying no dose has been logged.
-- Home and the calibration status no longer call the estimate calibrated when the route you are on now has no calibration (for example after switching from oral to gel with only oral results); the prediction interval is likewise drawn only where a calibrated route shapes the curve.
+- Home and the calibration page call the estimate calibrated only when a calibrated route makes up a meaningful share of the curve somewhere on Home's visible chart, so a curve from a new, uncalibrated route (for example gel after only oral results) is no longer called calibrated. The prediction interval is drawn only where a calibrated route shapes the curve, so "calibrated" and a visible band go together, and both screens now agree.
+- The prediction interval now breaks where calibration stops shaping the curve, instead of bridging short gaps with a straight line.
+- The "results to check" sheet now slides away before opening a result instead of blinking off.
 - Tapping a route in the calibration page's Routes card now opens the routes sheet, like tapping the card's header.
 
 ### Changed

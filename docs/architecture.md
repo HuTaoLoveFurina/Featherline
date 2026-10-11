@@ -461,8 +461,8 @@ The home screen has two cached layers, both observed by
   (`home_snapshot.pb`) so the home screen paints from cache on cold
   start before live Room observation catches up. The persisted record
   is `HomeSnapshotRecord`. The snapshot codec is at
-  `SNAPSHOT_CODEC_VERSION = 22` and the schema record at
-  `HOME_SNAPSHOT_SCHEMA_VERSION = 7`; both moved through the
+  `SNAPSHOT_CODEC_VERSION = 27` and the schema record at
+  `HOME_SNAPSHOT_SCHEMA_VERSION = 8`; both moved through the
   medicine-identity refactor (slots and log entries now reference a
   medicine by UUID, and the PATCH_OFF singleton round-trips), and the
   codec bumped again when the snapshot began carrying stock inputs so
@@ -477,7 +477,10 @@ The home screen has two cached layers, both observed by
   doses without re-reading Room. v19 appends `doseAmountDelta` to log
   entries so cached stock deltas survive a cold start. v20 appends
   external-import medicine payloads, v21 appends medication-log import
-  provenance, and v22 appends the cached Home hero anchor tracked date.
+  provenance, and v22 appends the cached Home hero anchor tracked date. v23 through
+  v27 carry the estimate-calibration state: the prediction-interval band
+  knots (each tagged with its contiguous run) and the hero's calibration
+  record, including the routes behind a calibrated status.
 
 The persisted snapshot also bundles a `HomePkProjectionRecord` — the
 result of the most recent
