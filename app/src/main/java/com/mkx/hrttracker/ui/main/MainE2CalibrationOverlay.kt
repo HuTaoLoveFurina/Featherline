@@ -61,7 +61,10 @@ data class MainPkCalibrationUiState(
     val renderUnavailable: Boolean,
     val bandUnavailable: Boolean,
     val band: MainE2CalibrationBand?,
-)
+) {
+    /** The legend/note row under the chart is shown. */
+    val showsChartNote: Boolean get() = band != null || bandUnavailable
+}
 
 /** Band knots mapped to chart coordinates (xHours + display-unit values). */
 data class MainE2CalibrationBand(
@@ -304,7 +307,7 @@ internal fun MainPkCalibrationChartUnavailableCard(modifier: Modifier = Modifier
 internal fun MainPkCalibrationChartNote(pk: MainPkCalibrationUiState) {
     val bandUnavailable = pk.bandUnavailable
     // An empty note would still take the parent column's spacing.
-    if (pk.band == null && !bandUnavailable) {
+    if (!pk.showsChartNote) {
         return
     }
     val bandSummary = stringResource(R.string.calibration_pk_band_a11y_summary)

@@ -1190,7 +1190,9 @@ internal fun MainE2ChartCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 10.dp)
-                .padding(bottom = 6.dp)
+                // The minimap sub-card needs 6dp more to match its side inset;
+                // a text legend under it sits on the plain card padding.
+                .padding(bottom = if (pkCalibration?.showsChartNote == true) 0.dp else 6.dp)
         ) {
 
             MainE2ChartCardHeader(
