@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,7 +44,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mkx.hrttracker.R
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerText
@@ -60,6 +58,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.ui.components.EditorSegmentedListItem
 import com.mkx.hrttracker.ui.components.HazeModalBottomSheet
 import com.mkx.hrttracker.ui.components.HrtSection
+import com.mkx.hrttracker.ui.components.PreferenceSegmentedListItem
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerKind
 import com.mkx.hrttracker.ui.medication.MedicationEditorSheetScaffold
 import com.mkx.hrttracker.ui.components.cjkTextOffset
@@ -106,48 +105,39 @@ internal fun PkCalibrationSheet(
     )
 }
 
-/** Icon-box + title + body row shared by the coaching/edu sheets. */
+/** Icon-box + title + body card shared by the edu sheet's pages; lives in an HrtSection. */
 @Composable
 private fun PkCalibrationSheetItem(
     @DrawableRes iconRes: Int,
     @StringRes titleRes: Int,
     @StringRes bodyRes: Int,
-    /** Inter-item gap; 0 for the first item under a title, whose gap is the title's spacer. */
-    topPadding: Dp = 12.dp,
 ) {
-    Row(modifier = Modifier.padding(top = topPadding)) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(MaterialTheme.shapes.medium)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            val title = stringResource(titleRes)
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.cjkTextOffset(title),
-            )
-            val body = stringResource(bodyRes)
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .cjkTextOffset(body),
-            )
-        }
+    PreferenceSegmentedListItem(
+        title = stringResource(titleRes),
+        supportingText = stringResource(bodyRes),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        titleTextStyle = MaterialTheme.typography.titleSmall,
+        supportingTextStyle = MaterialTheme.typography.bodySmall,
+        leadingContent = { PkCalibrationSheetIcon(iconRes) },
+    )
+}
+
+/** The edu cards' tinted 36dp icon box. */
+@Composable
+private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -375,71 +365,88 @@ fun PkCalibrationEduSheet(
 
 @Composable
 private fun PkCalibrationEduPage() {
-    val intro = stringResource(R.string.calibration_pk_edu_intro)
-    Text(
-        text = intro,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.cjkTextOffset(intro),
-    )
-    PkCalibrationEduHeader(R.string.calibration_pk_edu_does_header)
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_tune,
-        titleRes = R.string.calibration_pk_edu_does_routes_title,
-        bodyRes = R.string.calibration_pk_edu_does_routes_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_labs,
-        titleRes = R.string.calibration_pk_edu_does_band_title,
-        bodyRes = R.string.calibration_pk_edu_does_band_body,
-    )
+    // Sits on the scaffold's title gap, so its header drops the top padding.
+    HrtSection(
+        title = stringResource(R.string.calibration_pk_edu_does_header),
+        topPadding = false,
+    ) {
+        item {
+            // Body-only card: the intro takes the cards' body style as its one line.
+            PreferenceSegmentedListItem(
+                title = stringResource(R.string.calibration_pk_edu_intro),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                titleTextStyle = MaterialTheme.typography.bodySmall,
+                titleColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                leadingContent = { PkCalibrationSheetIcon(R.drawable.ic_experiment) },
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_route,
+                titleRes = R.string.calibration_pk_edu_does_routes_title,
+                bodyRes = R.string.calibration_pk_edu_does_routes_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_arrow_range,
+                titleRes = R.string.calibration_pk_edu_does_band_title,
+                bodyRes = R.string.calibration_pk_edu_does_band_body,
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
     // "Not a measurement" and "not dosing advice" are the sheet's disclaimer.
-    PkCalibrationEduHeader(R.string.calibration_pk_edu_doesnt_header)
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_block,
-        titleRes = R.string.calibration_pk_edu_doesnt_verify_title,
-        bodyRes = R.string.calibration_pk_edu_doesnt_verify_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_block,
-        titleRes = R.string.calibration_pk_edu_doesnt_learn_title,
-        bodyRes = R.string.calibration_pk_edu_doesnt_learn_body,
-    )
+    HrtSection(title = stringResource(R.string.calibration_pk_edu_doesnt_header)) {
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_block,
+                titleRes = R.string.calibration_pk_edu_doesnt_verify_title,
+                bodyRes = R.string.calibration_pk_edu_doesnt_verify_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_block,
+                titleRes = R.string.calibration_pk_edu_doesnt_learn_title,
+                bodyRes = R.string.calibration_pk_edu_doesnt_learn_body,
+            )
+        }
+    }
 }
 
 @Composable
 private fun PkCalibrationCoachingPage() {
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_schedule,
-        titleRes = R.string.calibration_pk_coaching_time_title,
-        bodyRes = R.string.calibration_pk_coaching_time_body,
-        topPadding = 0.dp,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_history,
-        titleRes = R.string.calibration_pk_coaching_history_title,
-        bodyRes = R.string.calibration_pk_coaching_history_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_experiment,
-        titleRes = R.string.calibration_pk_coaching_assay_title,
-        bodyRes = R.string.calibration_pk_coaching_assay_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_labs,
-        titleRes = R.string.calibration_pk_coaching_variety_title,
-        bodyRes = R.string.calibration_pk_coaching_variety_body,
-    )
-}
-
-@Composable
-private fun PkCalibrationEduHeader(@StringRes textRes: Int) {
-    Text(
-        text = stringResource(textRes).uppercase(),
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 18.dp),
-    )
+    HrtSection(title = null) {
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_schedule,
+                titleRes = R.string.calibration_pk_coaching_time_title,
+                bodyRes = R.string.calibration_pk_coaching_time_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_history,
+                titleRes = R.string.calibration_pk_coaching_history_title,
+                bodyRes = R.string.calibration_pk_coaching_history_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_biotech,
+                titleRes = R.string.calibration_pk_coaching_assay_title,
+                bodyRes = R.string.calibration_pk_coaching_assay_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_multiple_stop,
+                titleRes = R.string.calibration_pk_coaching_variety_title,
+                bodyRes = R.string.calibration_pk_coaching_variety_body,
+            )
+        }
+    }
 }
 
 /** Calibrated, provisional MEDIUM, provisional LOW with every reason, then population and numeric failure. */
