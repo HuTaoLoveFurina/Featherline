@@ -1,6 +1,5 @@
 package com.mkx.hrttracker.ui.calibration
 
-import com.mkx.hrttracker.ui.medication.MedicationEditorSectionLabel
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.heightIn
 import com.mkx.hrttracker.ui.components.SupportMessageListItem
@@ -184,25 +183,26 @@ fun PkCalibrationRoutesSheet(
             return@PkCalibrationSheet
         }
         val (adjusted, population) = uiState?.routeRows.orEmpty().partition { row -> row.displayState.isAdjusted }
-        // The medication sheets' section label (4 dp above its cards), not the
-        // page's HrtSection header, so every sheet spaces label and cards alike.
+        // Sections spaced like every page's consecutive sections; the first
+        // drops its header's top padding so it sits on the scaffold's title gap.
         if (adjusted.isNotEmpty()) {
-            MedicationEditorSectionLabel(
-                text = stringResource(R.string.calibration_pk_hero_adjusted),
+            HrtSection(
+                title = stringResource(R.string.calibration_pk_hero_adjusted),
                 topPadding = false,
-            )
-            HrtSection(title = null) {
+            ) {
                 adjusted.forEach { row ->
                     item { PkCalibrationRouteCard(row) }
                 }
             }
         }
         if (population.isNotEmpty()) {
-            MedicationEditorSectionLabel(
-                text = stringResource(R.string.calibration_pk_hero_population),
+            if (adjusted.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
+            }
+            HrtSection(
+                title = stringResource(R.string.calibration_pk_hero_population),
                 topPadding = adjusted.isNotEmpty(),
-            )
-            HrtSection(title = null) {
+            ) {
                 population.forEach { row ->
                     item { PkCalibrationRouteCard(row) }
                 }
@@ -268,7 +268,7 @@ private fun PkCalibrationRouteCard(row: PkCalibrationRouteRowUiState) {
             if (adjusted && warnings.isNotEmpty()) {
                 FlowRow(
                     // Aligns under the name (tile 34 + gap 12).
-                    modifier = Modifier.padding(start = 46.dp, top = 8.dp),
+                    modifier = Modifier.padding(start = 46.dp, top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
