@@ -315,8 +315,12 @@ fun PkCalibrationReviewSheet(
  * the direction of travel; the sheet wraps and animates between their heights.
  */
 @Composable
-fun PkCalibrationEduSheet(onDismissRequest: () -> Unit) {
-    var page by rememberSaveable { mutableIntStateOf(0) }
+fun PkCalibrationEduSheet(
+    onDismissRequest: () -> Unit,
+    // Previews open straight onto the second page.
+    initialPage: Int = 0,
+) {
+    var page by rememberSaveable { mutableIntStateOf(initialPage) }
     val lastPage = page == 1
     PkCalibrationSheet(
         // The title slides with its page below.
@@ -471,5 +475,21 @@ private fun PkCalibrationRoutesSheetPreview() {
             title = stringResource(R.string.main_e2_estimate_sheet_title),
             disclaimerKinds = listOf(MedicalDisclaimerKind.PLASMA_CONCENTRATION_ESTIMATES),
         )
+    }
+}
+
+@Preview(name = "PK Edu Sheet · what it is", showBackground = true, widthDp = 420, heightDp = 920)
+@Composable
+private fun PkCalibrationEduSheetPreview() {
+    HrtTrackerTheme(dynamicColor = false) {
+        PkCalibrationEduSheet(onDismissRequest = {})
+    }
+}
+
+@Preview(name = "PK Edu Sheet · helping it calibrate", showBackground = true, widthDp = 420, heightDp = 920)
+@Composable
+private fun PkCalibrationEduSheetCoachingPreview() {
+    HrtTrackerTheme(dynamicColor = false) {
+        PkCalibrationEduSheet(onDismissRequest = {}, initialPage = 1)
     }
 }
