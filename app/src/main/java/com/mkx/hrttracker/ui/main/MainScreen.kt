@@ -41,6 +41,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.mkx.hrttracker.R
+import com.mkx.hrttracker.ui.components.MedicalDisclaimerKind
 import com.mkx.hrttracker.data.repository.HomeInputSource
 import com.mkx.hrttracker.model.bloodtest.BloodAnalyteKey
 import com.mkx.hrttracker.model.bloodtest.BloodUnitKey
@@ -257,11 +258,14 @@ fun MainScreen(
         )
     }
     // The hero icon's sheet is the calibration page's routes sheet over the
-    // same live evaluation; null (before the first evaluation) is its loading state.
+    // same live evaluation, titled for the estimate and carrying its disclaimer;
+    // null (before the first evaluation) is its loading state.
     if (showCalibrationRoutesSheet) {
         PkCalibrationRoutesSheet(
             uiState = pkCalibrationSheetState,
             onDismissRequest = { showCalibrationRoutesSheet = false },
+            title = stringResource(R.string.main_e2_estimate_sheet_title),
+            disclaimerKinds = listOf(MedicalDisclaimerKind.PLASMA_CONCENTRATION_ESTIMATES),
         )
     }
 }

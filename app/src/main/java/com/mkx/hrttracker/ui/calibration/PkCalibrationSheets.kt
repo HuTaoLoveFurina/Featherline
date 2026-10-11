@@ -166,10 +166,13 @@ private fun PkCalibrationSheetItem(
 fun PkCalibrationRoutesSheet(
     uiState: PkCalibrationUiState?,
     onDismissRequest: () -> Unit,
+    title: String = stringResource(R.string.calibration_pk_routes_card_title),
+    disclaimerKinds: List<MedicalDisclaimerKind> = emptyList(),
 ) {
     PkCalibrationSheet(
-        title = stringResource(R.string.calibration_pk_routes_card_title),
+        title = title,
         onDismissRequest = onDismissRequest,
+        disclaimerKinds = disclaimerKinds,
     ) {
         val emptyTextRes = pkCalibrationRoutesSheetEmptyTextRes(uiState)
         if (emptyTextRes != null) {

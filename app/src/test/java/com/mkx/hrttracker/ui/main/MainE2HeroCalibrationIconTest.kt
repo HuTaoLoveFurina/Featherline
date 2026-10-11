@@ -16,7 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The hero's calibration icon, in either state, opens the routes sheet through its callback. */
+/** The hero's calibration icon, in every state, opens the estimate sheet through its callback. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
@@ -36,20 +36,27 @@ class MainE2HeroCalibrationIconTest {
         assertEquals(1, clicksOn(adjusted = false, descriptionRes = R.string.calibration_pk_hero_population))
     }
 
-    private fun clicksOn(adjusted: Boolean, descriptionRes: Int): Int {
+    @Test
+    fun iconBeforeTheFirstEvaluation_isThePopulationIcon() {
+        assertEquals(1, clicksOn(adjusted = null, descriptionRes = R.string.calibration_pk_hero_population))
+    }
+
+    private fun clicksOn(adjusted: Boolean?, descriptionRes: Int): Int {
         var clicks = 0
         composeRule.setContent {
             MainE2HeroCard(
                 section = MainE2HeroUiState(currentValue = 120.0),
                 now = LocalDateTime.of(2026, 10, 11, 12, 0),
                 displayUnit = BloodUnitKey.PG_ML,
-                pkCalibration = MainPkCalibrationUiState(
-                    adjusted = adjusted,
-                    limitedConfidence = false,
-                    renderUnavailable = false,
-                    bandUnavailable = false,
-                    band = null,
-                ),
+                pkCalibration = adjusted?.let {
+                    MainPkCalibrationUiState(
+                        adjusted = it,
+                        limitedConfidence = false,
+                        renderUnavailable = false,
+                        bandUnavailable = false,
+                        band = null,
+                    )
+                },
                 onCalibrationClick = { clicks += 1 },
             )
         }
