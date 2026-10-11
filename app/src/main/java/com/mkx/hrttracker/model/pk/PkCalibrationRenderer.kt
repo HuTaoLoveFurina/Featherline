@@ -16,6 +16,8 @@ import kotlin.math.sqrt
 /** Pure central-curve and predictive-band rendering for one exact chart domain. */
 object PkCalibrationRenderer {
     /**
+     * [statusEpochMillis] is the instant whose estimate the hero and status
+     * row describe (Home: the prediction instant; the calibration page: now).
      * [doseEvents] defaults to the fitted history; Home passes logged plus
      * planned doses so the band follows the same projected curve the chart
      * draws. The fit (and its covariance) is unaffected either way.
@@ -23,6 +25,7 @@ object PkCalibrationRenderer {
     fun render(
         evaluation: PkCalibrationEvaluation,
         domain: PkChartDomain,
+        statusEpochMillis: Long,
         doseEvents: List<PkDoseEvent> = evaluation.evidence?.input?.doseEvents.orEmpty(),
     ): PkCalibrationRenderResult? {
         val evidence = evaluation.evidence ?: return null
@@ -51,44 +54,64 @@ object PkCalibrationRenderer {
             population += epochMillis to breakdown
         }
 
-        // Only supported promoted routes are applied (see displayParams); one
-        // with zero contribution throughout this range is absent from
-        // render-level promotion (the hero names only routes that shape the
-        // visible curve).
-        val effectivePromotedRoutes = result.supportedPromotedRoutes.filter { route ->
+        // Applied to the curve: every supported promoted route (see
+        // displayParams) with a positive contribution somewhere in this range,
+        // so the central curve equals the Home simulation.
+        val appliedRoutes = result.supportedPromotedRoutes.filter { route ->
             population.any { (_, breakdown) -> breakdown.byRouteDrugPgml.getValue(route) > 0.0 }
         }
         val effectiveParams = PkPersonalParams.create(
-            effectivePromotedRoutes.associateWith(result.displayParams::logScaleFor)
+            appliedRoutes.associateWith(result.displayParams::logScaleFor)
         ) ?: return NumericUnavailable
 
-        val centralKnots = ArrayList<CentralKnot>(population.size)
-        for ((epochMillis, breakdown) in population) {
+        fun centralKnot(epochMillis: Long, breakdown: PkForwardBreakdown): CentralKnot? {
             val contributions = PkCalibrationRoute.entries.associateWith { route ->
                 breakdown.byRouteDrugPgml.getValue(route) * effectiveParams.scaleFor(route)
             }
             val total = contributions.values.sum()
-            if (!total.isFinite()) return NumericUnavailable
-            centralKnots += CentralKnot(epochMillis, contributions, total)
+            if (!total.isFinite()) return null
+            return CentralKnot(epochMillis, contributions, total)
+        }
+        val centralKnots = ArrayList<CentralKnot>(population.size)
+        for ((epochMillis, breakdown) in population) {
+            centralKnots += centralKnot(epochMillis, breakdown) ?: return NumericUnavailable
         }
         val centralCurve = centralKnots.map { knot -> PkCurvePoint(knot.epochMillis, knot.totalDrugPgml) }
 
-        if (effectivePromotedRoutes.isEmpty()) {
+        // A calibrated route shapes the estimate where it is at least the
+        // support share of the drawn signal. An exponential tail stays
+        // positive for months after a route is dropped, so "any positive
+        // contribution" would call a gel curve calibrated by an old oral fit,
+        // and shade it.
+        val statusBreakdown = forwardModel.breakdownAt(
+            epochDifferenceHours(statusEpochMillis, input.originEpochMillis)
+        ) ?: return NumericUnavailable
+        val statusKnot = centralKnot(statusEpochMillis, statusBreakdown) ?: return NumericUnavailable
+        val effectivePromotedRoutes = appliedRoutes.filter { route -> statusKnot.isShapedBy(route) }
+        val renderState = if (effectivePromotedRoutes.isEmpty()) {
+            PkCalibrationRenderState.POPULATION
+        } else {
+            PkCalibrationRenderState.PERSONALIZED
+        }
+
+        val shapedKnots = centralKnots.filter { knot -> appliedRoutes.any(knot::isShapedBy) }
+        if (shapedKnots.isEmpty()) {
             return PkCalibrationRenderResult(
-                renderState = PkCalibrationRenderState.POPULATION,
+                renderState = renderState,
+                effectivePromotedRoutes = effectivePromotedRoutes,
+                effectiveDisplayParams = effectiveParams,
                 centralCurve = centralCurve,
                 bandState = PkCalibrationBandState.NOT_APPLICABLE_POPULATION,
             )
         }
-
         val bandKnots = buildPredictiveBand(
-            centralKnots = centralKnots,
-            effectivePromotedRoutes = effectivePromotedRoutes,
+            shapedKnots = shapedKnots,
+            appliedRoutes = appliedRoutes,
             promotedBetaCovariance = result.promotedBetaCovariance,
             rLog = input.config.rLog,
         )
         return PkCalibrationRenderResult(
-            renderState = PkCalibrationRenderState.PERSONALIZED,
+            renderState = renderState,
             effectivePromotedRoutes = effectivePromotedRoutes,
             effectiveDisplayParams = effectiveParams,
             centralCurve = centralCurve,
@@ -107,27 +130,24 @@ object PkCalibrationRenderer {
         bandState = PkCalibrationBandState.NOT_APPLICABLE_POPULATION,
     )
 
+    /** One band knot per shaped knot; null is a numeric failure. */
     private fun buildPredictiveBand(
-        centralKnots: List<CentralKnot>,
-        effectivePromotedRoutes: List<PkCalibrationRoute>,
+        shapedKnots: List<CentralKnot>,
+        appliedRoutes: List<PkCalibrationRoute>,
         promotedBetaCovariance: PkCalibrationPromotedCovariance?,
         rLog: Double,
     ): List<PkPredictiveBandKnot>? {
         val covariance = promotedBetaCovariance ?: return null
         val lawCache = HashMap<Long, List<Double>>()
         val result = ArrayList<PkPredictiveBandKnot>()
-        for (knot in centralKnots) {
-            val hasPromotedContribution = effectivePromotedRoutes.any { route ->
-                knot.byRouteDrugPgml.getValue(route) > 0.0
-            }
-            if (!hasPromotedContribution) continue
+        for (knot in shapedKnots) {
             val median = knot.totalDrugPgml
             if (!median.isFinite() || median <= 0.0) return null
             val effectiveVariance = PkPredictiveBandMath.effectiveVariance(
                 totalPgml = median,
                 contributionByRoutePgml = knot.byRouteDrugPgml,
                 covariance = covariance,
-                promotedRoutes = effectivePromotedRoutes,
+                promotedRoutes = appliedRoutes,
             ) ?: return null
             // ponytail: the law is solved per distinct variance. Along a
             // multi-route curve the promoted share, and so the variance, differs
@@ -160,9 +180,16 @@ private const val VARIANCE_GRID_RATIO = 1.005
 
 private data class CentralKnot(
     val epochMillis: Long,
+    /** Contributions with the applied route scales, summing to [totalDrugPgml]. */
     val byRouteDrugPgml: Map<PkCalibrationRoute, Double>,
     val totalDrugPgml: Double,
-)
+) {
+    /** The route is at least the support share of the drawn signal here. */
+    fun isShapedBy(route: PkCalibrationRoute): Boolean =
+        totalDrugPgml > 0.0 &&
+            byRouteDrugPgml.getValue(route) >=
+                PkCalibrationDefaults.PROMOTION_SUPPORT_SHARE_MIN * totalDrugPgml
+}
 
 /** v9 delta-Laplace aggregate observation-predictive law. */
 internal object PkPredictiveBandMath {

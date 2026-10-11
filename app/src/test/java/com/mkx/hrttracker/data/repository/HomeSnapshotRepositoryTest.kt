@@ -596,7 +596,7 @@ class HomeSnapshotRepositoryTest {
         try {
             every { PkCalibrationEngine.evaluate(any()) } returns evaluation
             every {
-                PkCalibrationRenderer.render(any(), any(), any())
+                PkCalibrationRenderer.render(any(), any(), any(), any())
             } throws IllegalStateException("render")
             repository.runHomeDataMutation { }
             awaitRebuild(testScheduler) { writtenSnapshot.isCaptured }

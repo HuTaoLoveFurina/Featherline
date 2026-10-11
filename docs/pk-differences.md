@@ -221,6 +221,12 @@ multiplies that route's population contribution by `e^{beta_r}`.
   less than a 2x signal range, when the weighted log RMSE exceeds
   `2 * sqrt(R_LOG)`, when a supporting result has a Student-t weight
   below 0.25 and hasn't been reviewed, or when the fit is ambiguous.
+- **What "calibrated" means on screen.** Home and the calibration status
+  row call the estimate calibrated when a fitted route is at least 20%
+  of the drawn signal at the current instant, and the band is drawn only
+  over the times where that holds. An old route's exponential tail stays
+  positive for months, so "any contribution" would label a curve from a
+  new, uncalibrated route as calibrated.
 - **Review.** Per-result choices (`REVIEWED`, `EXCLUDED`) live in
   `e2_calibration_metadata`, `AUTO` as no row; see [data-model.md](data-model.md).
   `REVIEWED` only hides the review tip and never changes the fit.

@@ -93,13 +93,14 @@ class PkCalibrationLiveRepository @Inject constructor(
 
     private suspend fun render(build: HomeCalibrationBuild): PkCalibrationLive? {
         val evaluation = build.evaluation ?: return null
-        val domain = renderDomain() ?: return null
+        val nowMillis = clock.millis()
+        val domain = renderDomain(nowMillis) ?: return null
         return withContext(defaultDispatcher) {
             PkCalibrationLive(
                 input = build.input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain),
+                render = evaluation.renderFor(domain, statusEpochMillis = nowMillis),
             )
         }
     }
@@ -116,14 +117,15 @@ class PkCalibrationLiveRepository @Inject constructor(
             metadata = metadata,
             fallbackOriginEpochMillis = clock.millis(),
         )
-        val domain = renderDomain() ?: return null
+        val nowMillis = clock.millis()
+        val domain = renderDomain(nowMillis) ?: return null
         return withContext(defaultDispatcher) {
             val evaluation = PkCalibrationEngine.evaluate(input)
             PkCalibrationLive(
                 input = input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain),
+                render = evaluation.renderFor(domain, statusEpochMillis = nowMillis),
             )
         }
     }
@@ -131,8 +133,7 @@ class PkCalibrationLiveRepository @Inject constructor(
     // The render domain tracks the chart's visible window around the
     // current clock: the widest selectable past span (plus a day of
     // start-of-day flooring slack) through the widest future span.
-    private fun renderDomain(): PkChartDomain? {
-        val nowMillis = clock.millis()
+    private fun renderDomain(nowMillis: Long): PkChartDomain? {
         return PkChartDomain.create(
             rangeStartEpochMillis = nowMillis - RENDER_PAST_MILLIS,
             rangeEndEpochMillis = nowMillis + RENDER_FUTURE_MILLIS,

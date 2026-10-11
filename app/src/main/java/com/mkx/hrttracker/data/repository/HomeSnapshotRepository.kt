@@ -896,7 +896,11 @@ class HomeSnapshotRepository @Inject constructor(
                             .map { hours -> windowStartMillis + (hours * 3_600_000.0).roundToLong() }
                             .filter { millis -> millis in windowStartMillis..windowEndMillis },
                     )?.let { domain ->
-                        calibration.renderFor(domain, bandEvents)
+                        calibration.renderFor(
+                            domain = domain,
+                            statusEpochMillis = projection.generatedAt.toEpochMilli(),
+                            doseEvents = bandEvents,
+                        )
                     }
                 }
             }.onFailure { throwable ->
@@ -929,10 +933,10 @@ class HomeSnapshotRepository @Inject constructor(
             .orEmpty()
         // Hero/status summary, so Home never waits for the live evaluation.
         val calibrationRecord = calibration?.let { evaluation ->
-            // The render only narrows the supported routes to those shaping
-            // this range. When it failed (null) the curve still carries
-            // displayParams, so name the supported routes rather than call a
-            // personalized curve "population".
+            // The render narrows the supported routes to those shaping the
+            // estimate at the prediction instant. When it failed (null) the
+            // curve still carries displayParams, so name the supported routes
+            // rather than call a personalized curve "population".
             val effective = homeRender?.effectivePromotedRoutes
                 ?: evaluation.result.supportedPromotedRoutes
             val provisional = evaluation.result.routeResults

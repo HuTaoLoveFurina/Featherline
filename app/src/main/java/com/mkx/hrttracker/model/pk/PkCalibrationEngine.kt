@@ -10,9 +10,10 @@ class PkCalibrationEvaluation internal constructor(
     /** Null for a non-READY evaluation; numeric render failure is a NUMERIC_UNAVAILABLE result. */
     fun renderFor(
         domain: PkChartDomain,
+        statusEpochMillis: Long,
         doseEvents: List<PkDoseEvent> = evidence?.input?.doseEvents.orEmpty(),
     ): PkCalibrationRenderResult? {
-        return PkCalibrationRenderer.render(this, domain, doseEvents)
+        return PkCalibrationRenderer.render(this, domain, statusEpochMillis, doseEvents)
     }
 }
 

@@ -138,12 +138,14 @@ enum class PkRouteCalibrationDisplayState {
         get() = this == LAB_ADJUSTED_PROVISIONAL || this == LAB_CALIBRATED
 }
 
+/** The estimate's basis at the render's status instant. */
 enum class PkCalibrationRenderState {
     POPULATION,
     PERSONALIZED,
     NUMERIC_UNAVAILABLE,
 }
 
+/** The band covers every knot a calibrated route shapes, whatever [PkCalibrationRenderState] says. */
 enum class PkCalibrationBandState {
     NOT_APPLICABLE_POPULATION,
     READY,
@@ -254,8 +256,13 @@ data class PkCalibrationResult(
 
 data class PkCalibrationRenderResult(
     val renderState: PkCalibrationRenderState,
-    /** Promoted routes with a positive contribution somewhere in this chart range. */
+    /**
+     * Supported promoted routes that are at least the support share of the
+     * drawn signal at the status instant: what Home and the status row call
+     * the estimate calibrated by.
+     */
     val effectivePromotedRoutes: List<PkCalibrationRoute> = emptyList(),
+    /** Every supported promoted route with a contribution in this range, as applied to [centralCurve]. */
     val effectiveDisplayParams: PkPersonalParams = PkPersonalParams.population(),
     val centralCurve: List<PkCurvePoint>,
     val bandState: PkCalibrationBandState,
