@@ -371,13 +371,10 @@ private fun PkCalibrationEduPage() {
         topPadding = false,
     ) {
         item {
-            // Body-only card: the intro takes the cards' body style as its one line.
-            PreferenceSegmentedListItem(
-                title = stringResource(R.string.calibration_pk_edu_intro),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                titleTextStyle = MaterialTheme.typography.bodySmall,
-                titleColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                leadingContent = { PkCalibrationSheetIcon(R.drawable.ic_experiment) },
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_experiment,
+                titleRes = R.string.calibration_pk_edu_intro_title,
+                bodyRes = R.string.calibration_pk_edu_intro,
             )
         }
         item {
