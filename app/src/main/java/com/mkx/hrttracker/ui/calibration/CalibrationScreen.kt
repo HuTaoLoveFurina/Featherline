@@ -761,6 +761,12 @@ internal fun CalibrationPanelRow(
                 CalibrationPanelResultAdditionalSummaryRow(
                     resultSummary = resultSummary,
                     hideReferenceRanges = settingsState.hideReferenceRanges,
+                    // One tonal step above the row: page rows are Low, sheet rows Container.
+                    containerColor = if (containerColor == MaterialTheme.colorScheme.surfaceContainerLow) {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
                     modifier = Modifier.constrainAs(additionalSummary) {
                         start.linkTo(summaryColumn.start)
                         end.linkTo(parent.end)
@@ -882,11 +888,12 @@ private fun CalibrationPanelResultSummaryRow(
 private fun CalibrationPanelResultAdditionalSummaryRow(
     resultSummary: CalibrationPanelResultSummary,
     hideReferenceRanges: Boolean,
+    containerColor: Color,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = containerColor,
         modifier = modifier.padding(vertical = 6.dp)
     ) {
         Row(
