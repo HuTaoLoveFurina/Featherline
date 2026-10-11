@@ -192,7 +192,7 @@ private fun MedicationSummaryHeader(
     MedicationEditorSectionLabel(stringResource(R.string.field_medication), topPadding = false)
     val resolvedCount = remember(countText) { parseMedicationCountText(countText) }
     val doseInstruction = doseInstructionDraft?.toDoseInstructionOrNull() ?: DoseInstruction.Noop
-    Spacer(modifier = Modifier.height(2.dp))
+    // The label's own 4 dp is the gap to the card, as in every other sheet.
     MedicationCardWithStockSubcard(
         medicine = medicine,
         doseInstruction = doseInstruction,

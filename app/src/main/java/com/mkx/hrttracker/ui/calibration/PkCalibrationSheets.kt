@@ -1,5 +1,8 @@
 package com.mkx.hrttracker.ui.calibration
 
+import com.mkx.hrttracker.ui.medication.MedicationEditorSectionLabel
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.layout.heightIn
 import com.mkx.hrttracker.ui.components.SupportMessageListItem
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
@@ -43,6 +46,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mkx.hrttracker.R
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerText
@@ -109,8 +113,10 @@ private fun PkCalibrationSheetItem(
     @DrawableRes iconRes: Int,
     @StringRes titleRes: Int,
     @StringRes bodyRes: Int,
+    /** Inter-item gap; 0 for the first item under a title, whose gap is the title's spacer. */
+    topPadding: Dp = 12.dp,
 ) {
-    Row(modifier = Modifier.padding(top = 12.dp)) {
+    Row(modifier = Modifier.padding(top = topPadding)) {
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -170,23 +176,30 @@ fun PkCalibrationRoutesSheet(
             SupportMessageListItem(
                 text = stringResource(emptyTextRes),
                 painter = painterResource(R.drawable.ic_info),
-                modifier = Modifier.padding(top = 12.dp),
                 containerColor = MaterialTheme.colorScheme.surfaceContainer
             )
             return@PkCalibrationSheet
         }
         val (adjusted, population) = uiState?.routeRows.orEmpty().partition { row -> row.displayState.isAdjusted }
+        // The medication sheets' section label (4 dp above its cards), not the
+        // page's HrtSection header, so every sheet spaces label and cards alike.
         if (adjusted.isNotEmpty()) {
-            HrtSection(title = stringResource(R.string.calibration_pk_hero_adjusted)) {
+            MedicationEditorSectionLabel(
+                text = stringResource(R.string.calibration_pk_hero_adjusted),
+                topPadding = false,
+            )
+            HrtSection(title = null) {
                 adjusted.forEach { row ->
                     item { PkCalibrationRouteCard(row) }
                 }
             }
         }
         if (population.isNotEmpty()) {
-            HrtSection(
-                title = stringResource(R.string.calibration_pk_hero_population),
-            ) {
+            MedicationEditorSectionLabel(
+                text = stringResource(R.string.calibration_pk_hero_population),
+                topPadding = adjusted.isNotEmpty(),
+            )
+            HrtSection(title = null) {
                 population.forEach { row ->
                     item { PkCalibrationRouteCard(row) }
                 }
@@ -325,13 +338,20 @@ fun PkCalibrationEduSheet(onDismissRequest: () -> Unit) {
             label = "pkEduPage",
         ) { shownPage ->
             Column {
-                Text(
-                    text = stringResource(
-                        if (shownPage == 1) R.string.calibration_pk_coaching_row_title
-                        else R.string.calibration_pk_edu_title
-                    ),
-                    style = MaterialTheme.typography.titleLarge,
-                )
+                // The scaffold header's box, so this page title sits where
+                // every other sheet title does.
+                Box(
+                    modifier = Modifier.heightIn(min = ButtonDefaults.MinHeight),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (shownPage == 1) R.string.calibration_pk_coaching_row_title
+                            else R.string.calibration_pk_edu_title
+                        ),
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                }
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_small)))
                 if (shownPage == 1) PkCalibrationCoachingPage() else PkCalibrationEduPage()
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
@@ -353,9 +373,7 @@ private fun PkCalibrationEduPage() {
         text = intro,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .cjkTextOffset(intro),
+        modifier = Modifier.cjkTextOffset(intro),
     )
     PkCalibrationEduHeader(R.string.calibration_pk_edu_does_header)
     PkCalibrationSheetItem(
@@ -388,6 +406,7 @@ private fun PkCalibrationCoachingPage() {
         iconRes = R.drawable.ic_schedule,
         titleRes = R.string.calibration_pk_coaching_time_title,
         bodyRes = R.string.calibration_pk_coaching_time_body,
+        topPadding = 0.dp,
     )
     PkCalibrationSheetItem(
         iconRes = R.drawable.ic_history,
