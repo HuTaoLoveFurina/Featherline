@@ -84,9 +84,9 @@ internal fun PkCalibrationSheet(
     onConfirm: (() -> Unit)? = null,
     secondaryButtonText: String? = null,
     onSecondary: (() -> Unit)? = null,
+    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope: CoroutineScope = rememberCoroutineScope()
     val dismiss = { hideBottomSheet(scope, sheetState, onDismissRequest) }
     MedicationEditorSheetScaffold(
@@ -156,6 +156,7 @@ private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
  * A null [uiState] (Home, before the first evaluation) and a state with no
  * rows show the app's one-line empty state instead.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PkCalibrationRoutesSheet(
     uiState: PkCalibrationUiState?,
@@ -302,17 +303,23 @@ private fun PkCalibrationRouteCard(
 // Review queue sheet
 // ---------------------------------------------------------------------------
 
-/** One card per lab that needs review; the caller renders each lab row. */
+/**
+ * One card per lab that needs review; the caller renders each lab row and
+ * owns [sheetState] so a row tap can hide the sheet before navigating.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PkCalibrationReviewSheet(
     count: Int,
     onDismissRequest: () -> Unit,
+    sheetState: SheetState,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     PkCalibrationSheet(
         title = pluralStringResource(R.plurals.calibration_pk_review_count, count, count),
         onDismissRequest = onDismissRequest,
         confirmButtonText = stringResource(R.string.journal_done),
+        sheetState = sheetState,
         content = content,
     )
 }
@@ -326,6 +333,7 @@ fun PkCalibrationReviewSheet(
  * Next advances, Back returns, Finish (last page) dismisses. Pages slide in
  * the direction of travel; the sheet wraps and animates between their heights.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PkCalibrationEduSheet(
     onDismissRequest: () -> Unit,
