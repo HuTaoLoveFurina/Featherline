@@ -573,32 +573,35 @@ internal fun MainE2HeroCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.cjkTextOffset(titleText)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                         // Opens the estimate sheet: the routes behind the value
-                        // and the estimate disclaimer. Before the first evaluation
-                        // (null) the estimate is the population model's.
-                        val adjusted = pkCalibration?.adjusted == true
-                        CompositionLocalProvider(
-                            LocalMinimumInteractiveComponentSize provides Dp.Unspecified
-                        ) {
-                            IconButton(
-                                onClick = onCalibrationClick,
-                                modifier = Modifier.size(24.dp),
+                        // and the estimate disclaimer. Nothing is announced
+                        // before the first evaluation (null) or while the value
+                        // is still a skeleton: an un-evaluated hero is not
+                        // "population", and it would flip a moment later.
+                        if (!showSkeleton && pkCalibration != null) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            CompositionLocalProvider(
+                                LocalMinimumInteractiveComponentSize provides Dp.Unspecified
                             ) {
-                                Icon(
-                                    painter = painterResource(
-                                        if (adjusted) R.drawable.ic_experiment else R.drawable.ic_group
-                                    ),
-                                    contentDescription = stringResource(
-                                        if (adjusted) {
-                                            R.string.calibration_pk_hero_adjusted
-                                        } else {
-                                            R.string.calibration_pk_hero_population
-                                        }
-                                    ),
-                                    tint = heroSupportingColor,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                                IconButton(
+                                    onClick = onCalibrationClick,
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(
+                                        painter = painterResource(
+                                            if (pkCalibration.adjusted) R.drawable.ic_experiment else R.drawable.ic_group
+                                        ),
+                                        contentDescription = stringResource(
+                                            if (pkCalibration.adjusted) {
+                                                R.string.calibration_pk_hero_adjusted
+                                            } else {
+                                                R.string.calibration_pk_hero_population
+                                            }
+                                        ),
+                                        tint = heroSupportingColor,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                     }

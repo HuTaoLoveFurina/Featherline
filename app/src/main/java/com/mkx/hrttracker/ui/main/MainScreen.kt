@@ -47,6 +47,7 @@ import com.mkx.hrttracker.model.bloodtest.BloodAnalyteKey
 import com.mkx.hrttracker.model.bloodtest.BloodUnitKey
 import com.mkx.hrttracker.startup.StartupTiming
 import com.mkx.hrttracker.ui.calibration.calibrationAllowedUnitsFor
+import com.mkx.hrttracker.ui.calibration.smallShareRoutes
 import com.mkx.hrttracker.ui.components.AppContentContainer
 import com.mkx.hrttracker.ui.components.HazeCenterAlignedTopAppBar
 import com.mkx.hrttracker.ui.components.ScrollToTopSignalEffect
@@ -258,14 +259,19 @@ fun MainScreen(
         )
     }
     // The hero icon's sheet is the calibration page's routes sheet over the
-    // same live evaluation, titled for the estimate and carrying its disclaimer;
-    // null (before the first evaluation) is its loading state.
+    // live evaluation, titled for the estimate and carrying its disclaimer;
+    // null (before the first evaluation) is its loading state. The "small
+    // share" rows come from the hero's own snapshot, not the live render: the
+    // two are judged at different instants and the sheet explains the icon.
     if (showCalibrationRoutesSheet) {
+        val home = uiState.pkCalibration
         PkCalibrationRoutesSheet(
             uiState = pkCalibrationSheetState,
             onDismissRequest = { showCalibrationRoutesSheet = false },
             title = stringResource(R.string.main_e2_estimate_sheet_title),
             disclaimerKinds = listOf(MedicalDisclaimerKind.PLASMA_CONCENTRATION_ESTIMATES),
+            smallShareRoutes = home?.smallShareRoutes(pkCalibrationSheetState)
+                ?: pkCalibrationSheetState?.smallShareRoutes.orEmpty(),
         )
     }
 }

@@ -7,6 +7,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
 import com.mkx.hrttracker.model.pk.PkCalibrationInput
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderState
+import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
 import com.mkx.hrttracker.model.pk.PkChartDomain
 import com.mkx.hrttracker.model.pk.buildEstradiolPkDoseEvents
@@ -928,6 +929,7 @@ class HomeSnapshotRepository @Inject constructor(
                     p50Pgml = knot.p50Pgml,
                     p841344746Pgml = knot.p841344746Pgml,
                     p975Pgml = knot.p975Pgml,
+                    segment = knot.segment,
                 )
             }
             .orEmpty()
@@ -953,6 +955,7 @@ class HomeSnapshotRepository @Inject constructor(
                 // numeric failure, a thrown render, or an unbuildable domain.
                 bandUnavailable = effective.isNotEmpty() &&
                         homeRender?.bandState != PkCalibrationBandState.READY,
+                effectiveRoutes = effective.map(PkCalibrationRoute::stableId),
             )
         }
         // Expire at the soonest planned dose after generation time — the

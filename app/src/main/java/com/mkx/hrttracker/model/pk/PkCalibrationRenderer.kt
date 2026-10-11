@@ -88,13 +88,15 @@ object PkCalibrationRenderer {
         ) ?: return NumericUnavailable
         val statusKnot = centralKnot(statusEpochMillis, statusBreakdown) ?: return NumericUnavailable
         val effectivePromotedRoutes = appliedRoutes.filter { route -> statusKnot.isShapedBy(route) }
-        val renderState = if (effectivePromotedRoutes.isEmpty()) {
+        // The curve, not the status instant: an applied route scales the
+        // whole range even where it is too small a share to shape or shade.
+        val renderState = if (appliedRoutes.isEmpty()) {
             PkCalibrationRenderState.POPULATION
         } else {
             PkCalibrationRenderState.PERSONALIZED
         }
 
-        val shapedKnots = centralKnots.filter { knot -> appliedRoutes.any(knot::isShapedBy) }
+        val shapedKnots = segmentShapedKnots(centralKnots) { knot -> appliedRoutes.any(knot::isShapedBy) }
         if (shapedKnots.isEmpty()) {
             return PkCalibrationRenderResult(
                 renderState = renderState,
@@ -130,9 +132,31 @@ object PkCalibrationRenderer {
         bandState = PkCalibrationBandState.NOT_APPLICABLE_POPULATION,
     )
 
+    /**
+     * Shaped knots in curve order, each tagged with its contiguous run: a run
+     * ends at every unshaped knot between two shaped ones, so the drawer can
+     * leave that span unshaded instead of guessing the gap from knot spacing
+     * (which is nonuniform, so a one- or two-knot hole is invisible to it).
+     */
+    internal fun <T> segmentShapedKnots(
+        knots: List<T>,
+        isShaped: (T) -> Boolean,
+    ): List<Pair<T, Int>> {
+        val shaped = ArrayList<Pair<T, Int>>()
+        var segment = -1
+        var previousShaped = false
+        for (knot in knots) {
+            val knotShaped = isShaped(knot)
+            if (knotShaped && !previousShaped) segment++
+            if (knotShaped) shaped += knot to segment
+            previousShaped = knotShaped
+        }
+        return shaped
+    }
+
     /** One band knot per shaped knot; null is a numeric failure. */
     private fun buildPredictiveBand(
-        shapedKnots: List<CentralKnot>,
+        shapedKnots: List<Pair<CentralKnot, Int>>,
         appliedRoutes: List<PkCalibrationRoute>,
         promotedBetaCovariance: PkCalibrationPromotedCovariance?,
         rLog: Double,
@@ -140,7 +164,7 @@ object PkCalibrationRenderer {
         val covariance = promotedBetaCovariance ?: return null
         val lawCache = HashMap<Long, List<Double>>()
         val result = ArrayList<PkPredictiveBandKnot>()
-        for (knot in shapedKnots) {
+        for ((knot, segment) in shapedKnots) {
             val median = knot.totalDrugPgml
             if (!median.isFinite() || median <= 0.0) return null
             val effectiveVariance = PkPredictiveBandMath.effectiveVariance(
@@ -163,7 +187,7 @@ object PkCalibrationRenderer {
             val logMedian = ln(median)
             val q = law.map { offset -> exp(logMedian + offset) }
             if (q.any { value -> !value.isFinite() || value <= 0.0 }) return null
-            result += PkPredictiveBandKnot(knot.epochMillis, q[0], q[1], q[2], q[3], q[4])
+            result += PkPredictiveBandKnot(knot.epochMillis, q[0], q[1], q[2], q[3], q[4], segment)
         }
         return result.takeIf(List<PkPredictiveBandKnot>::isNotEmpty)
     }

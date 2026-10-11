@@ -23,6 +23,7 @@ import com.mkx.hrttracker.model.medication.visibleMedicationEntries
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkCalibrationBandState
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderState
+import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkPredictiveBandKnot
 import com.mkx.hrttracker.model.pk.PkMedicationSimulation
 import com.mkx.hrttracker.ui.calibration.pkCalibrationUiState
@@ -566,6 +567,7 @@ class MainViewModel @Inject constructor(
                 band = fixture.render
                     ?.takeIf { it.bandState == PkCalibrationBandState.READY }
                     ?.let { band(it.bandKnots) },
+                effectivePromotedRoutes = ui.effectivePromotedRoutes,
             )
         }
         val record = inputs.pkCalibration ?: return null
@@ -575,6 +577,7 @@ class MainViewModel @Inject constructor(
             renderUnavailable = record.renderUnavailable,
             bandUnavailable = record.bandUnavailable,
             band = band(bandKnots),
+            effectivePromotedRoutes = record.effectiveRoutes.mapNotNull(PkCalibrationRoute::fromStableId),
         )
     }
 

@@ -138,14 +138,19 @@ enum class PkRouteCalibrationDisplayState {
         get() = this == LAB_ADJUSTED_PROVISIONAL || this == LAB_CALIBRATED
 }
 
-/** The estimate's basis at the render's status instant. */
+/**
+ * What the central curve was simulated with: PERSONALIZED when any supported
+ * promoted route is applied in the chart range, POPULATION otherwise. It says
+ * nothing about the status instant; [PkCalibrationRenderResult.effectivePromotedRoutes]
+ * names the routes that shape the estimate there.
+ */
 enum class PkCalibrationRenderState {
     POPULATION,
     PERSONALIZED,
     NUMERIC_UNAVAILABLE,
 }
 
-/** The band covers every knot a calibrated route shapes, whatever [PkCalibrationRenderState] says. */
+/** The band covers every knot a calibrated route shapes; a PERSONALIZED curve may shape none in range. */
 enum class PkCalibrationBandState {
     NOT_APPLICABLE_POPULATION,
     READY,
@@ -203,6 +208,12 @@ data class PkPredictiveBandKnot(
     val p50Pgml: Double,
     val p841344746Pgml: Double,
     val p975Pgml: Double,
+    /**
+     * Contiguous run index, ascending in curve order. Consecutive knots in
+     * different runs have an unshaded span between them; the drawer must not
+     * bridge it.
+     */
+    val segment: Int = 0,
 )
 
 /**
@@ -262,7 +273,11 @@ data class PkCalibrationRenderResult(
      * the estimate calibrated by.
      */
     val effectivePromotedRoutes: List<PkCalibrationRoute> = emptyList(),
-    /** Every supported promoted route with a contribution in this range, as applied to [centralCurve]. */
+    /**
+     * Every supported promoted route with a contribution in this range, as
+     * applied to [centralCurve]; non-population exactly when [renderState] is
+     * PERSONALIZED.
+     */
     val effectiveDisplayParams: PkPersonalParams = PkPersonalParams.population(),
     val centralCurve: List<PkCurvePoint>,
     val bandState: PkCalibrationBandState,

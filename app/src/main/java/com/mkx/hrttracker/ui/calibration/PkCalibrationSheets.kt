@@ -148,6 +148,11 @@ private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
 /**
  * Adjusted routes first, each with a short warning line; population routes
  * follow in their own group. Results to check live on the section's banner.
+ * Grouping is the fit's: a calibrated route stays under Adjusted even where
+ * its current share of the estimate is too small to shape it (so the hero
+ * says "population"); that row says so with a pill instead of being relabeled.
+ * [smallShareRoutes] names those rows. Home passes the set judged at the
+ * same instant as its hero (the snapshot's), so icon and pill never disagree.
  * A null [uiState] (Home, before the first evaluation) and a state with no
  * rows show the app's one-line empty state instead.
  */
@@ -157,6 +162,7 @@ fun PkCalibrationRoutesSheet(
     onDismissRequest: () -> Unit,
     title: String = stringResource(R.string.calibration_pk_routes_card_title),
     disclaimerKinds: List<MedicalDisclaimerKind> = emptyList(),
+    smallShareRoutes: Set<PkCalibrationRoute> = uiState?.smallShareRoutes.orEmpty(),
 ) {
     PkCalibrationSheet(
         title = title,
@@ -172,7 +178,8 @@ fun PkCalibrationRoutesSheet(
             )
             return@PkCalibrationSheet
         }
-        val (adjusted, population) = uiState?.routeRows.orEmpty().partition { row -> row.displayState.isAdjusted }
+        val state = uiState ?: return@PkCalibrationSheet
+        val (adjusted, population) = state.routeRows.partition { row -> row.displayState.isAdjusted }
         // Sections spaced like every page's consecutive sections; the first
         // drops its header's top padding so it sits on the scaffold's title gap.
         if (adjusted.isNotEmpty()) {
@@ -181,7 +188,12 @@ fun PkCalibrationRoutesSheet(
                 topPadding = false,
             ) {
                 adjusted.forEach { row ->
-                    item { PkCalibrationRouteCard(row) }
+                    item {
+                        PkCalibrationRouteCard(
+                            row = row,
+                            shapesEstimate = row.route !in smallShareRoutes,
+                        )
+                    }
                 }
             }
         }
@@ -203,13 +215,18 @@ fun PkCalibrationRoutesSheet(
 
 /**
  * Route card: tile, name, supporting line (results + confidence). Adjusted
- * routes add short warning pills (the adjustment applies regardless);
- * outliers are left to the review banner. Population routes are a bare name
- * unless the fit failed for them.
+ * routes add short warning pills (the adjustment applies regardless), and a
+ * "small share" pill when [shapesEstimate] is false: the route is calibrated
+ * but is under the support share of the estimate at the status instant, so
+ * the hero does not count it. Outliers are left to the review banner.
+ * Population routes are a bare name unless the fit failed for them.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PkCalibrationRouteCard(row: PkCalibrationRouteRowUiState) {
+private fun PkCalibrationRouteCard(
+    row: PkCalibrationRouteRowUiState,
+    shapesEstimate: Boolean = true,
+) {
     val adjusted = row.displayState.isAdjusted
     EditorSegmentedListItem(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -255,16 +272,21 @@ private fun PkCalibrationRouteCard(row: PkCalibrationRouteRowUiState) {
                     (reason == PkCalibrationReason.UNCERTAIN &&
                         row.confidence == PkCalibrationRouteConfidence.LOW)
             }
-            if (adjusted && warnings.isNotEmpty()) {
+            val pills = warnings.map { reason -> stringResource(reason.labelRes) } +
+                listOfNotNull(
+                    stringResource(R.string.calibration_pk_route_pill_small_share)
+                        .takeIf { !shapesEstimate }
+                )
+            if (adjusted && pills.isNotEmpty()) {
                 FlowRow(
                     // Aligns under the name (tile 34 + gap 12).
                     modifier = Modifier.padding(start = 46.dp, top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    warnings.forEach { reason ->
+                    pills.forEach { label ->
                         HrtPill(
-                            label = stringResource(reason.labelRes),
+                            label = label,
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                             size = HrtPillSize.Small,

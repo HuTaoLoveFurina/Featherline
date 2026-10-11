@@ -189,10 +189,11 @@ class PkCalibrationRendererTest {
 
         val gelWeek = domain(startHours = 120, hours = 168, intervalHours = 6)
         val actual = render(evaluation, gelWeek)
-        // The tail is applied (so the curve matches Home) but shapes nothing.
+        // The tail is applied (so the curve matches Home, and the render
+        // state says so) but shapes nothing: no effective route, no band.
         assertEquals(setOf(PkCalibrationRoute.ORAL), actual.effectiveDisplayParams.routeLogScale.keys)
         assertTrue(actual.effectivePromotedRoutes.isEmpty())
-        assertEquals(PkCalibrationRenderState.POPULATION, actual.renderState)
+        assertEquals(PkCalibrationRenderState.PERSONALIZED, actual.renderState)
         assertEquals(PkCalibrationBandState.NOT_APPLICABLE_POPULATION, actual.bandState)
         assertTrue(actual.bandKnots.isEmpty())
         assertCentralForwardParity(actual, evaluation)
@@ -373,6 +374,65 @@ class PkCalibrationRendererTest {
         assertTrue(populationOnlyTimes.all(centralTimes::contains))
         assertTrue(populationOnlyTimes.none(bandTimes::contains))
         assertEquals(shapedTimes, bandTimes)
+        assertSegmentsBreakExactlyAtUnshapedCentralKnots(actual, evaluation)
+    }
+
+    @Test
+    fun bandSegments_breakAtOneAndTwoKnotHoles_thatSpacingCannotReveal() {
+        // Calibrated daily oral under a population injection: around the
+        // injection peak the oral share dips under the support share for a
+        // knot or two at a time. Those knots leave the band, and with 6h
+        // sampling the hole is only 2-3x the usual spacing, so the run tag
+        // is the only thing that can keep the drawer from bridging it.
+        val shaped = listOf(true, true, false, true, true, false, false, true, false)
+        val tagged = PkCalibrationRenderer.segmentShapedKnots(shaped.indices.toList()) { shaped[it] }
+        assertEquals(listOf(0 to 0, 1 to 0, 3 to 1, 4 to 1, 7 to 2), tagged)
+        assertEquals(emptyList<Pair<Int, Int>>(), PkCalibrationRenderer.segmentShapedKnots(listOf(1, 2)) { false })
+
+        val evaluation = evaluation(
+            events = listOf(event(PkRoute.INJECTION, 0.0, 4.0, PkCompound.EV)) +
+                (0..240 step 24).map { hour -> event(PkRoute.ORAL, hour.toDouble(), 2.0) },
+            promotedQByRoute = mapOf(PkCalibrationRoute.ORAL to ln(1.1)),
+        )
+        val actual = render(evaluation, domain(startHours = 1, hours = 240, intervalHours = 6))
+
+        assertEquals(PkCalibrationBandState.READY, actual.bandState)
+        val holes = holeSizes(actual, evaluation)
+        assertTrue("expected short holes, got $holes", holes.any { size -> size in 1..2 })
+        assertSegmentsBreakExactlyAtUnshapedCentralKnots(actual, evaluation)
+    }
+
+    /** Sizes of the runs of unshaped central knots between band knots. */
+    private fun holeSizes(
+        render: PkCalibrationRenderResult,
+        evaluation: PkCalibrationEvaluation,
+    ): List<Int> {
+        val central = render.centralCurve.map(PkCurvePoint::epochMillis)
+        val band = render.bandKnots.map(PkPredictiveBandKnot::epochMillis)
+        return band.zipWithNext { a, b ->
+            central.count { epochMillis -> epochMillis in (a + 1) until b }
+        }.filter { size -> size > 0 }
+    }
+
+    /**
+     * Consecutive band knots share a segment exactly when no central knot
+     * between them was left out of the band.
+     */
+    private fun assertSegmentsBreakExactlyAtUnshapedCentralKnots(
+        render: PkCalibrationRenderResult,
+        evaluation: PkCalibrationEvaluation,
+    ) {
+        val central = render.centralCurve.map(PkCurvePoint::epochMillis)
+        val band = render.bandKnots
+        assertEquals(0, band.first().segment)
+        band.zipWithNext { a, b ->
+            val hole = central.any { epochMillis -> epochMillis in (a.epochMillis + 1) until b.epochMillis }
+            assertEquals(
+                "segment break between ${a.epochMillis} and ${b.epochMillis}",
+                if (hole) a.segment + 1 else a.segment,
+                b.segment,
+            )
+        }
     }
 
     @Test

@@ -731,6 +731,7 @@ class HomeRepositoryTest {
             limitedConfidence = false,
             renderUnavailable = false,
             bandUnavailable = false,
+            effectiveRoutes = listOf("injection"),
         )
         val snapshot = HomeSnapshotRecord(
             schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
