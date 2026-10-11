@@ -66,6 +66,14 @@ data class MainPkCalibrationUiState(
     val showsChartNote: Boolean get() = band != null || bandUnavailable
 }
 
+/** Primary-color alphas of the 95% and 68% bands; the 68% band is drawn over the 95% one. */
+internal const val MainE2CalibrationBandOuterAlpha = 0.06f
+internal const val MainE2CalibrationBandInnerAlpha = 0.10f
+
+/** On-screen alpha where the 68% band overlaps the 95% band. */
+private const val MainE2CalibrationBandStackedAlpha =
+    1f - (1f - MainE2CalibrationBandOuterAlpha) * (1f - MainE2CalibrationBandInnerAlpha)
+
 /** Band knots mapped to chart coordinates (xHours + display-unit values). */
 data class MainE2CalibrationBand(
     val xHours: List<Double>,
@@ -327,12 +335,12 @@ internal fun MainPkCalibrationChartNote(pk: MainPkCalibrationUiState) {
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = MainE2CalibrationBandStackedAlpha),
                             shape = MaterialTheme.shapes.extraSmall,
                             modifier = Modifier.size(9.dp),
                         ) { }
                         Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = MainE2CalibrationBandOuterAlpha),
                             shape = MaterialTheme.shapes.extraSmall,
                             modifier = Modifier.size(9.dp),
                         ) { }

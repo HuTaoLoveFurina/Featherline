@@ -1219,8 +1219,8 @@ internal fun MainE2ChartCard(
                 val interactionMarkerColor = MaterialTheme.colorScheme.onSurfaceVariant
                 val markerSurfaceColor = MaterialTheme.colorScheme.surfaceContainer
                 val markerLabelSize = remember { mutableStateOf(IntSize.Zero) }
-                val calibrationBandOuterColor = lineColor.copy(alpha = 0.10f)
-                val calibrationBandInnerColor = lineColor.copy(alpha = 0.20f)
+                val calibrationBandOuterColor = lineColor.copy(alpha = MainE2CalibrationBandOuterAlpha)
+                val calibrationBandInnerColor = lineColor.copy(alpha = MainE2CalibrationBandInnerAlpha)
                 // Shared with the line layer so the band decoration can read the
                 // in-flight intro drawing model and rise/fade with the line.
                 val lineDrawingModelKey = remember {
