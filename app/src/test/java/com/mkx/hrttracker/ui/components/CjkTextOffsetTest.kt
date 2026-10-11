@@ -2,21 +2,22 @@ package com.mkx.hrttracker.ui.components
 
 import androidx.compose.ui.Modifier
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
 
 class CjkTextOffsetTest {
+    // The nudge is a no-op since the typography fix keeps the baseline still; the modifier only
+    // survives until the call sites are deleted.
     @Test
-    fun cjkTextOffset_appliesForCantoneseLocale() {
-        assertNotSame(Modifier, Modifier.cjkTextOffset(Locale.forLanguageTag("yue-Hant-HK")))
+    fun cjkTextOffset_isNoOpForCantoneseLocale() {
+        assertSame(Modifier, Modifier.cjkTextOffset(Locale.forLanguageTag("yue-Hant-HK")))
     }
 
     @Test
-    fun cjkTextOffset_appliesForChineseLocale() {
-        assertNotSame(Modifier, Modifier.cjkTextOffset(Locale.forLanguageTag("zh-Hant")))
+    fun cjkTextOffset_isNoOpForChineseText() {
+        assertSame(Modifier, Modifier.cjkTextOffset("剂量"))
     }
 
     @Test

@@ -2,11 +2,8 @@ package com.mkx.hrttracker.ui.components
 
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mkx.hrttracker.util.isChineseLanguage
 import java.util.Locale
 
 val LocalCjkTextOffsetEnabled = compositionLocalOf { false }
@@ -30,40 +27,20 @@ internal fun CharSequence.containsCjkCharacters(): Boolean {
     return false
 }
 
+// ponytail: no-op. AppTypography (ui/theme/Type.kt) keeps the baseline still on devices whose CJK
+// fallback font is taller than the Latin font, which is what this -1 dp nudge used to paper over.
+// The call sites, the Settings toggle and LocalCjkTextOffsetEnabled stay until the on-device
+// check of the typography fix; delete all of them together afterwards.
+@Suppress("UNUSED_PARAMETER")
 internal fun Modifier.cjkTextOffset(
     text: CharSequence,
     enabled: Boolean = true,
     amount: Dp = (-1).dp
-): Modifier {
-    if (!enabled || !text.containsCjkCharacters()) {
-        return this
-    }
-    return composed {
-        if (!LocalCjkTextOffsetEnabled.current) {
-            Modifier
-        } else {
-            Modifier.graphicsLayer {
-                translationY = amount.toPx()
-            }
-        }
-    }
-}
+): Modifier = this
 
+@Suppress("UNUSED_PARAMETER")
 internal fun Modifier.cjkTextOffset(
     locale: Locale,
     enabled: Boolean = true,
     amount: Dp = (-1).dp
-): Modifier {
-    if (!enabled || !locale.isChineseLanguage()) {
-        return this
-    }
-    return composed {
-        if (!LocalCjkTextOffsetEnabled.current) {
-            Modifier
-        } else {
-            Modifier.graphicsLayer {
-                translationY = amount.toPx()
-            }
-        }
-    }
-}
+): Modifier = this
