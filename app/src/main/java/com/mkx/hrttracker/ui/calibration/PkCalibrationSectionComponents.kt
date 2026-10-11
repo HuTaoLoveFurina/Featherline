@@ -275,7 +275,7 @@ private fun PkCalibrationRouteSummaryCard(
                 )
                 PkCalibrationRowChevron()
             }
-            HrtSection(title = null, modifier = Modifier.padding(top = 12.dp)) {
+            HrtSection(title = null, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) {
                 rows.forEach { row -> item { PkCalibrationRouteSummaryCell(row = row, onClick = onOpen) } }
                 if (reviewCount > 0) {
                     item { PkCalibrationReviewEntry(count = reviewCount, onClick = onOpenReview) }

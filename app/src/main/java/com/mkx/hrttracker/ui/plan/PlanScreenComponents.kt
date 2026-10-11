@@ -819,7 +819,10 @@ internal fun RegimenGroupCard(
                 )
 
                 val upcomingText = stringResource(R.string.plan_group_upcoming_title)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(bottom = 2.dp),
+                ) {
                     Text(
                         text = upcomingText.uppercase(),
                         style = MaterialTheme.typography.labelMedium,

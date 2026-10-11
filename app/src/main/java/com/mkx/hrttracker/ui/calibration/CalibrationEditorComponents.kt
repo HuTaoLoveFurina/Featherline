@@ -100,7 +100,7 @@ internal fun CalibrationDateTimeCard(
     crossZoneLabel: String? = null,
 ) {
     CalibrationEditorCard(
-        modifier = Modifier.padding(vertical = 8.dp)
+        modifier = Modifier.padding(vertical = 6.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -414,7 +414,7 @@ internal fun CalibrationAnalyteCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 2.dp),
+                    .padding(top = 2.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
@@ -560,7 +560,7 @@ internal fun CalibrationCustomAnalyteCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 2.dp),
+                    .padding(top = 2.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Spacer(modifier = Modifier.weight(1f))

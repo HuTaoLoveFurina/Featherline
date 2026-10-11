@@ -469,7 +469,7 @@ private fun CalibrationScreenContent(
                             pkFooter = {
                                 PkCalibrationReviewSummary(
                                     flag = pkLabFlags[panel.uuid],
-                                    modifier = Modifier.padding(top = 12.dp),
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
                                 )
                             },
                         )
