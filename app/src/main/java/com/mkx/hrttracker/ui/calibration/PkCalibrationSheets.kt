@@ -459,3 +459,17 @@ private fun PkCalibrationRouteCardPreview() {
         }
     }
 }
+
+/** Home's variant (estimate title + disclaimer) over a mixed fit: both groups, every warning pill. */
+@Preview(name = "PK Routes Sheet · Home", showBackground = true, widthDp = 420, heightDp = 920)
+@Composable
+private fun PkCalibrationRoutesSheetPreview() {
+    HrtTrackerTheme(dynamicColor = false) {
+        PkCalibrationRoutesSheet(
+            uiState = previewPkProvisionalUiState,
+            onDismissRequest = {},
+            title = stringResource(R.string.main_e2_estimate_sheet_title),
+            disclaimerKinds = listOf(MedicalDisclaimerKind.PLASMA_CONCENTRATION_ESTIMATES),
+        )
+    }
+}
