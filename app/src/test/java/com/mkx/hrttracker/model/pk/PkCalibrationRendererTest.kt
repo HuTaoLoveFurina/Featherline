@@ -176,6 +176,40 @@ class PkCalibrationRendererTest {
     }
 
     @Test
+    fun effectiveRoutesChange_isTheMinuteTheShapingRoutesCross() {
+        // Home caches the status at its prediction instant; as oral absorbs
+        // after its dose it crosses the support share, and the cache must
+        // expire then rather than at the next planned dose.
+        val events = listOf(
+            event(PkRoute.INJECTION, 0.0, 1.0, PkCompound.EV),
+            event(PkRoute.ORAL, 100.0, 2.0),
+        )
+        val evaluation = evaluation(
+            events = events,
+            promotedQByRoute = mapOf(
+                PkCalibrationRoute.INJECTION to ln(1.1),
+                PkCalibrationRoute.ORAL to ln(1.2),
+            ),
+        )
+        val domain = domain(startHours = 100, hours = 124, intervalHours = 6)
+        val atOralDose = render(evaluation, domain, statusEpochMillis = domain.rangeStartEpochMillis)
+        assertEquals(listOf(PkCalibrationRoute.INJECTION), atOralDose.effectivePromotedRoutes)
+        val changeAt = requireNotNull(atOralDose.effectiveRoutesChangeEpochMillis)
+        assertTrue(changeAt > domain.rangeStartEpochMillis)
+
+        val justBefore = render(evaluation, domain, statusEpochMillis = changeAt - 60_000L)
+        assertEquals(atOralDose.effectivePromotedRoutes, justBefore.effectivePromotedRoutes)
+        val after = render(evaluation, domain, statusEpochMillis = changeAt)
+        assertEquals(
+            listOf(PkCalibrationRoute.INJECTION, PkCalibrationRoute.ORAL),
+            after.effectivePromotedRoutes,
+        )
+
+        val atRangeEnd = render(evaluation, domain, statusEpochMillis = domain.rangeEndEpochMillis)
+        assertEquals(null, atRangeEnd.effectiveRoutesChangeEpochMillis)
+    }
+
+    @Test
     fun oldRouteTail_doesNotCallTheCurrentRouteCalibrated_orShadeIt() {
         // Oral, then a switch to gel; only oral is calibrated. A week later the
         // oral tail is still positive, so "any contribution" would label the

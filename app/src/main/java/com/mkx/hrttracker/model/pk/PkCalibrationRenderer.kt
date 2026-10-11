@@ -88,6 +88,30 @@ object PkCalibrationRenderer {
         ) ?: return NumericUnavailable
         val statusKnot = centralKnot(statusEpochMillis, statusBreakdown) ?: return NumericUnavailable
         val effectivePromotedRoutes = appliedRoutes.filter { route -> statusKnot.isShapedBy(route) }
+        // Home keeps this status while its clock advances: name the first
+        // instant past the status where the shaping routes differ, bisected
+        // between knots to a minute (Home's tick), so it can rebuild then.
+        fun shapedRoutes(knot: CentralKnot) = appliedRoutes.filter(knot::isShapedBy)
+        val effectiveRoutesChangeEpochMillis = centralKnots
+            .indexOfFirst { knot ->
+                knot.epochMillis > statusEpochMillis && shapedRoutes(knot) != effectivePromotedRoutes
+            }
+            .takeIf { index -> index >= 0 }
+            ?.let { index ->
+                var unchanged = maxOf(
+                    statusEpochMillis,
+                    centralKnots.getOrNull(index - 1)?.epochMillis ?: Long.MIN_VALUE,
+                )
+                var changed = centralKnots[index].epochMillis
+                while (changed - unchanged > 60_000L) {
+                    val mid = unchanged + (changed - unchanged) / 2
+                    val knot = forwardModel.breakdownAt(epochDifferenceHours(mid, input.originEpochMillis))
+                        ?.let { breakdown -> centralKnot(mid, breakdown) }
+                        ?: break
+                    if (shapedRoutes(knot) == effectivePromotedRoutes) unchanged = mid else changed = mid
+                }
+                changed
+            }
         // The curve, not the status instant: an applied route scales the
         // whole range even where it is too small a share to shape or shade.
         val renderState = if (appliedRoutes.isEmpty()) {
@@ -101,6 +125,7 @@ object PkCalibrationRenderer {
             return PkCalibrationRenderResult(
                 renderState = renderState,
                 effectivePromotedRoutes = effectivePromotedRoutes,
+            effectiveRoutesChangeEpochMillis = effectiveRoutesChangeEpochMillis,
                 effectiveDisplayParams = effectiveParams,
                 centralCurve = centralCurve,
                 bandState = PkCalibrationBandState.NOT_APPLICABLE_POPULATION,
@@ -115,6 +140,7 @@ object PkCalibrationRenderer {
         return PkCalibrationRenderResult(
             renderState = renderState,
             effectivePromotedRoutes = effectivePromotedRoutes,
+            effectiveRoutesChangeEpochMillis = effectiveRoutesChangeEpochMillis,
             effectiveDisplayParams = effectiveParams,
             centralCurve = centralCurve,
             bandState = if (bandKnots == null) {

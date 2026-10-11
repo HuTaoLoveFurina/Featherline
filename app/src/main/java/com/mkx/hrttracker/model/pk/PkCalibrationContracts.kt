@@ -274,6 +274,12 @@ data class PkCalibrationRenderResult(
      */
     val effectivePromotedRoutes: List<PkCalibrationRoute> = emptyList(),
     /**
+     * First instant after the status instant (within the domain, to the
+     * minute) where [effectivePromotedRoutes] would differ; null when they
+     * hold to the range end. Home expires its cached status here.
+     */
+    val effectiveRoutesChangeEpochMillis: Long? = null,
+    /**
      * Every supported promoted route with a contribution in this range, as
      * applied to [centralCurve]; non-population exactly when [renderState] is
      * PERSONALIZED.
