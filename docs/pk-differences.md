@@ -196,7 +196,10 @@ multiplies that route's population contribution by `e^{beta_r}`.
 - **Evidence filter.** A result is set aside when the modeled total is
   below 5 pg/mL (`drugMinInformativePgml`), when its value is zero or
   below, or when the forward model cannot be evaluated. Results the user
-  excluded are skipped. There is no endogenous-E2 term.
+  excluded are skipped. There is no endogenous-E2 term. The fit reads
+  estradiol doses from 180 days before the earliest result; if every dose
+  is older than that, the latest one is kept, so those results read as
+  below the modeled signal rather than as having no dose logged.
 - **Objective.** A joint MAP over the supported routes (some result
   draws at least 20% of its modeled signal from the route) with a
   Student-t (`nu = 4`) likelihood on the log residual
@@ -209,8 +212,8 @@ multiplies that route's population contribution by `e^{beta_r}`.
   minima survive, the best one is used and every route is flagged
   ambiguous.
 - **Uncertainty.** A Laplace approximation at the MAP gives each route's
-  posterior SD. The Home band is the 68% and 95% posterior predictive
-  interval for a new result (Laplace covariance plus Student-t
+  posterior SD. The Home band is the 68% and 95% prediction interval
+  for a new result (Laplace covariance plus Student-t
   observation noise, integrated with Gauss-Hermite quadrature). It is
   not a therapeutic range.
 - **Warn, don't gate.** Every supported route is applied. Warnings are
@@ -221,7 +224,7 @@ multiplies that route's population contribution by `e^{beta_r}`.
   less than a 2x signal range, when the weighted log RMSE exceeds
   `2 * sqrt(R_LOG)`, when a supporting result has a Student-t weight
   below 0.25 and hasn't been reviewed, or when the fit is ambiguous.
-- **What "calibrated" means on screen.** Home and the calibration status
+- **What "calibrated" means on screen.** The Home hero and the calibration status
   row call the estimate calibrated when a fitted route is at least 20%
   of the drawn signal at the current instant, and the band is drawn only
   over the times where that holds. An old route's exponential tail stays

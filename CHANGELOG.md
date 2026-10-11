@@ -9,17 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Tap the calibration icon beside the E2 value on Home to open the calibration routes sheet, the same one as on the calibration page.
+- The icon beside the estradiol title on Home now opens "About this estimate", which lists the routes behind the estimate and the estimate disclaimer. It replaces the info button.
 
 ### Fixed
 
-- Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its shaded range describe the same fit.
-- When every logged estradiol dose is more than 180 days older than your earliest E2 result, calibration now reports those results as below the modeled signal instead of saying no dose has been logged.
-- Home and the calibration status no longer call the estimate calibrated when the route you are on now has no calibration (for example after switching from oral to gel with only oral results); the shaded range is likewise drawn only where a calibrated route shapes the curve.
+- Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its prediction interval describe the same fit.
+- When every logged estradiol dose is more than 180 days older than your earliest estradiol result, calibration now reports those results as below the modeled signal instead of saying no dose has been logged.
+- Home and the calibration status no longer call the estimate calibrated when the route you are on now has no calibration (for example after switching from oral to gel with only oral results); the prediction interval is likewise drawn only where a calibrated route shapes the curve.
+- Tapping a route in the calibration page's Routes card now opens the routes sheet, like tapping the card's header.
 
 ### Changed
 
 - Estimate calibration solves about ten times faster. On a Galaxy S20, a five-route history with 20 results took about 5 seconds per Home refresh and now takes about half a second.
+- The shaded band on the Home chart is now called a prediction interval and is drawn lighter, and its legend matches the chart.
+- Calibration text is shorter and clearer in every language.
+- Sheets and cards look more consistent: calibration sheets use the same cards as the rest of the app, every editor sheet has the same gap under its title, sheet cards share one background color, and cards nested in cards have even margins.
 
 ## [1.4.0-pre] - 2026-10-07
 

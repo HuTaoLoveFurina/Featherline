@@ -234,7 +234,8 @@ medicine, log, and blood-test repositories.
 Feature sub-packages, one screen tree each:
 
 - [`ui/main`](https://github.com/mkx173/Featherline/tree/8e46ab59d3328a389c20e588bd1e62174dcb8b19/app/src/main/java/com/mkx/hrttracker/ui/main) — the home tab:
-  E2 hero card, 7-day/30-day PK trend chart,
+  E2 hero card (its calibration icon opens `PkCalibrationRoutesSheet`,
+  which also carries the estimate disclaimer), 7-day/30-day PK trend chart,
   today/last-night/upcoming sections, antiandrogen status cards, and
   the collapsible low-stock section (`MainLowStockSection`) that lists
   medicines in a warning state.
@@ -251,7 +252,8 @@ Feature sub-packages, one screen tree each:
   hero-background picker.
 - [`ui/calibration`](https://github.com/mkx173/Featherline/tree/8e46ab59d3328a389c20e588bd1e62174dcb8b19/app/src/main/java/com/mkx/hrttracker/ui/calibration) — blood-test panel list, panel
   editor, per-unit settings, and the estimate calibration section
-  (`PkCalibration*`: per-route cards, the results-to-check review sheet,
+  (`PkCalibration*`: per-route cards, the routes sheet they open, the
+  results-to-check review sheet,
   and the one-time "How estimate calibration works" sheet). It reads
   `PkCalibrationLiveRepository`, which re-evaluates the fit after each
   Home snapshot write; review choices are written through
@@ -544,7 +546,10 @@ They are not release blockers.
 - Route-scale estimate calibration runs inside the Home snapshot build, which
   holds the home-data mutation lock, and is evaluated again by
   `PkCalibrationLiveRepository` after the snapshot write. With many E2
-  results the 1-D start grid in `PkJointMapSolver` is the costly part.
+  results the 1-D start grid in `PkJointMapSolver` is the costly part
+  (about 0.5 s for 20 results on five routes on a Galaxy S20 debug build
+  since the grid step went to 1e-2; the opt-in `PkCalibrationSolverTimingTest`
+  measures it).
 - The catalog/regimen/history split shipped on
   `codex/medication-identity-refactor` but a few legacy artifacts in
   `model/medication/MedicationCatalog.kt` (the `MedicationDoseAssistPreset`

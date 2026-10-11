@@ -1149,7 +1149,7 @@
     <string name="calibration_pk_coaching_assay_title">Stick to one lab</string>
     <string name="calibration_pk_coaching_assay_body">Results from the same lab and method are easiest to compare.</string>
     <string name="calibration_pk_coaching_variety_title">Test at different times</string>
-    <string name="calibration_pk_coaching_variety_body">Testing when one route makes up most of your E2 helps calibrate that route.</string>
+    <string name="calibration_pk_coaching_variety_body">Testing when one route dominates helps calibrate that route.</string>
     <string name="calibration_pk_coaching_safety_note">Don’t change your doses or test schedule without talking to your clinician.</string>
     <string name="calibration_pk_edu_title">How estimate calibration works</string>
     <string name="calibration_pk_edu_intro_title">Calibrates to your lab results</string>
