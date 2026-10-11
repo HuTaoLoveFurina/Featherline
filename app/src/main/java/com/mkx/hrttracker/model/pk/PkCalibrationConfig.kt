@@ -33,8 +33,8 @@ object PkCalibrationDefaults {
 
     /**
      * A lab supports route r when its population share d_ir/D_i is at least
-     * this value. Support only feeds warnings; every route a lab
-     * touches is fitted and shown.
+     * this value. Only routes with a supporting lab are fitted and applied;
+     * the rest stay at population.
      */
     const val PROMOTION_SUPPORT_SHARE_MIN = 0.2
 

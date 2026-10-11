@@ -197,11 +197,12 @@ multiplies that route's population contribution by `e^{beta_r}`.
   below 5 pg/mL (`drugMinInformativePgml`), when its value is zero or
   below, or when the forward model cannot be evaluated. Results the user
   excluded are skipped. There is no endogenous-E2 term.
-- **Objective.** A joint MAP over all active routes with a Student-t
-  (`nu = 4`) likelihood on the log residual `log y_i - log m_i`, scaled
-  by `R_LOG = 0.0225` (about 15% log-SD), plus a Gaussian prior
-  `beta_r ~ N(0, 0.30^2)`. Routes with no signal in any result keep
-  `beta_r = 0`.
+- **Objective.** A joint MAP over the supported routes (some result
+  draws at least 20% of its modeled signal from the route) with a
+  Student-t (`nu = 4`) likelihood on the log residual
+  `log y_i - log m_i`, scaled by `R_LOG = 0.0225` (about 15% log-SD),
+  plus a Gaussian prior `beta_r ~ N(0, 0.30^2)`. Every other route keeps
+  `beta_r = 0` and shows as population.
 - **Solver.** Deterministic multi-start damped Newton. Starts are
   `beta = 0`, each route's 1-D conditional minimum (grid plus
   bisection), and every pairwise combination of those. If two distinct
@@ -212,9 +213,8 @@ multiplies that route's population contribution by `e^{beta_r}`.
   interval for a new result (Laplace covariance plus Student-t
   observation noise, integrated with Gauss-Hermite quadrature). It is
   not a therapeutic range.
-- **Warn, don't gate.** Every route touched by an included result is
-  applied. Warnings are attached when no result draws at least 20% of
-  its signal from the route, when the scale is outside the route's usual
+- **Warn, don't gate.** Every supported route is applied. Warnings are
+  attached when the scale is outside the route's usual
   range (0.5 to 2 for injection, patch, and oral; 0.25 to 3 for gel and
   sublingual) or is a large shift backed by fewer than three results,
   when the posterior SD is above 0.20 or the supporting results span

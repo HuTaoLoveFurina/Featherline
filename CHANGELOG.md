@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its shaded range describe the same fit.
+- When every logged estradiol dose is more than 180 days older than your earliest E2 result, calibration now reports those results as below the modeled signal instead of saying no dose has been logged.
+
 ## [1.4.0-pre] - 2026-10-07
 
 ### Added

@@ -8,6 +8,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
 import com.mkx.hrttracker.model.pk.PkCalibrationInput
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderResult
 import com.mkx.hrttracker.model.pk.PkChartDomain
+import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,6 +46,7 @@ class PkCalibrationLiveRepository @Inject constructor(
     private val clock: Clock,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     @AppScope appScope: CoroutineScope,
+    private val diagnosticsLogger: AppDiagnosticsLogger = AppDiagnosticsLogger(),
 ) {
     private val retryVersion = MutableStateFlow(0L)
 
@@ -67,7 +69,10 @@ class PkCalibrationLiveRepository @Inject constructor(
                 emit(PkCalibrationLiveResult(if (build != null) render(build) else evaluate()))
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+                // Surfaced as the numeric-failure row with Try again; the log
+                // is the only trace of why.
+                diagnosticsLogger.warning(TAG, "pk_calibration_live_failed", exception)
                 emit(PkCalibrationLiveResult(null))
             }
         }
@@ -136,6 +141,7 @@ class PkCalibrationLiveRepository @Inject constructor(
     }
 
     private companion object {
+        private const val TAG = "PkCalibrationLiveRepository"
         private const val SIX_HOURS_MILLIS = 6L * 60L * 60L * 1_000L
         private const val DAY_MILLIS = 24L * 60L * 60L * 1_000L
         private val RENDER_PAST_MILLIS =

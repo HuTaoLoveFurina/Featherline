@@ -749,9 +749,11 @@ class HomeSnapshotRepository @Inject constructor(
             }
             HomeSnapshotBuildInputs(
                 calibrationLabs = calibrationLabs,
-                calibrationEntries = calibrationEntryEntities.map { entry ->
-                    entry.toMedicationLogEntryModel(entryMedicinesByUuid)
-                },
+                // Plus the latest dose: buildPkCalibrationInput keeps it when
+                // every dose predates the lab window.
+                calibrationEntries = (calibrationEntryEntities + listOfNotNull(latestEstradiolEntryEntity))
+                    .distinctBy { entry -> entry.uuid }
+                    .map { entry -> entry.toMedicationLogEntryModel(entryMedicinesByUuid) },
                 calibrationMetadata = calibrationMetadata,
                 activeGroups = activeGroups,
                 archivedGroups = archivedGroups,
@@ -871,7 +873,7 @@ class HomeSnapshotRepository @Inject constructor(
         // The band follows the same projected curve as the chart: the same
         // logged (lookback-limited) plus planned doses, over the projection
         // window. The fit itself used the full dose history.
-        val homeRender = if (calibration == null || calibrationInput == null) {
+        val homeRender = if (calibration == null) {
             null
         } else {
             runCatching {
