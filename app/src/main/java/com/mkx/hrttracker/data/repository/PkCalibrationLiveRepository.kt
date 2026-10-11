@@ -10,6 +10,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationRenderResult
 import com.mkx.hrttracker.model.pk.PkChartDomain
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import java.time.Clock
+import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -100,7 +101,7 @@ class PkCalibrationLiveRepository @Inject constructor(
                 input = build.input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain),
+                render = evaluation.renderFor(domain, statusRange = build.statusRange),
             )
         }
     }
@@ -119,20 +120,27 @@ class PkCalibrationLiveRepository @Inject constructor(
         )
         val nowMillis = clock.millis()
         val domain = renderDomain(nowMillis) ?: return null
+        // The status describes Home's visible chart, as the build path does;
+        // the domain only has to cover it.
+        val statusRange = homeSnapshotRepository.visibleChartRange(
+            now = LocalDateTime.ofInstant(clock.instant(), clock.zone),
+            zoneId = clock.zone,
+        )
         return withContext(defaultDispatcher) {
             val evaluation = PkCalibrationEngine.evaluate(input)
             PkCalibrationLive(
                 input = input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain),
+                render = evaluation.renderFor(domain, statusRange = statusRange),
             )
         }
     }
 
-    // The render domain tracks the chart's visible window around the
+    // The render domain covers any option's visible window around the
     // current clock: the widest selectable past span (plus a day of
-    // start-of-day flooring slack) through the widest future span.
+    // start-of-day flooring slack) through the widest future span. The
+    // status range narrows it to the current option's window.
     private fun renderDomain(nowMillis: Long): PkChartDomain? {
         return PkChartDomain.create(
             rangeStartEpochMillis = nowMillis - RENDER_PAST_MILLIS,

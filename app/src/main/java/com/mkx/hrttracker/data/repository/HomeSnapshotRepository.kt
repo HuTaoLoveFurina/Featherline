@@ -234,6 +234,12 @@ class HomeSnapshotRepository @Inject constructor(
         return checkNotNull(mutationResult).getOrThrow()
     }
 
+    /** Home's visible chart window for the current option: the range the calibration badge describes. */
+    suspend fun visibleChartRange(now: LocalDateTime, zoneId: ZoneId): LongRange {
+        val option = settingsRepository.homeE2ChartWindowOptionFlow.first()
+        return HomePkChartWindow.forNow(now = now, zoneId = zoneId, option = option).range
+    }
+
     fun isSnapshotUsable(
         snapshot: HomeSnapshotRecord,
         now: LocalDateTime,
@@ -821,12 +827,16 @@ class HomeSnapshotRepository @Inject constructor(
                 )
             }.getOrNull()
         }
+        // The badge (Home and the calibration page alike) describes the
+        // visible chart, not the cached forecast buffer past it.
+        val visibleChartRange = HomePkChartWindow.forNow(now = now, zoneId = zoneId, option = option).range
         publishCalibrationBuild(
             HomeCalibrationBuild(
                 generation = refreshGeneration,
                 generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
                 input = calibrationInput,
                 evaluation = calibration,
+                statusRange = visibleChartRange,
             )
         )
         diagnosticsLogger.info(
@@ -904,13 +914,10 @@ class HomeSnapshotRepository @Inject constructor(
                             .map { hours -> windowStartMillis + (hours * 3_600_000.0).roundToLong() }
                             .filter { millis -> millis in windowStartMillis..windowEndMillis },
                     )?.let { domain ->
-                        // The badge describes the visible chart; the domain
-                        // runs on through the cached forecast buffer.
                         calibration.renderFor(
                             domain = domain,
                             doseEvents = bandEvents,
-                            statusRange = windowStartMillis..
-                                    windowStartMillis + option.chartWindowHours * 3_600_000L,
+                            statusRange = visibleChartRange,
                         )
                     }
                 }
@@ -1182,6 +1189,8 @@ class HomeSnapshotRepository @Inject constructor(
         val windowStartEpochMillis: Long,
         val windowEndEpochMillis: Long,
     ) {
+        val range: LongRange get() = windowStartEpochMillis..windowEndEpochMillis
+
         companion object {
             fun forNow(
                 now: LocalDateTime,
@@ -1308,6 +1317,8 @@ class HomeCalibrationBuild(
     val generatedAtEpochMillis: Long,
     val input: PkCalibrationInput,
     val evaluation: PkCalibrationEvaluation?,
+    /** Home's visible chart window at build time: the range the badge describes. */
+    val statusRange: LongRange,
 )
 
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 8
