@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.res.painterResource
@@ -77,10 +78,6 @@ internal fun mainE2CalibrationBandColor(): Color {
     val primary = MaterialTheme.colorScheme.primary
     return remember(primary) { primary.desaturateHct() }
 }
-
-/** On-screen alpha where the 68% band overlaps the 95% band. */
-private const val MainE2CalibrationBandStackedAlpha =
-    1f - (1f - MainE2CalibrationBandOuterAlpha) * (1f - MainE2CalibrationBandInnerAlpha)
 
 /** Band knots mapped to chart coordinates (xHours + display-unit values). */
 data class MainE2CalibrationBand(
@@ -338,18 +335,26 @@ internal fun MainPkCalibrationChartNote(pk: MainPkCalibrationUiState) {
             ) {
                 Spacer(modifier = Modifier.weight(1f))
                 val pkBandLegendText = stringResource(R.string.calibration_pk_band_legend)
+                // Swatches sit on the card, but the bands blend over the chart's
+                // surfaceContainer plot (the 68% band over the 95% one), so paint
+                // the opaque result the plot shows.
                 val bandColor = mainE2CalibrationBandColor()
+                val plotColor = MaterialTheme.colorScheme.surfaceContainer
+                val outerSwatchColor = bandColor.copy(alpha = MainE2CalibrationBandOuterAlpha)
+                    .compositeOver(plotColor)
+                val innerSwatchColor = bandColor.copy(alpha = MainE2CalibrationBandInnerAlpha)
+                    .compositeOver(outerSwatchColor)
                 Box {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Surface(
-                            color = bandColor.copy(alpha = MainE2CalibrationBandStackedAlpha),
+                            color = innerSwatchColor,
                             shape = MaterialTheme.shapes.extraSmall,
                             modifier = Modifier.size(9.dp),
                         ) { }
                         Surface(
-                            color = bandColor.copy(alpha = MainE2CalibrationBandOuterAlpha),
+                            color = outerSwatchColor,
                             shape = MaterialTheme.shapes.extraSmall,
                             modifier = Modifier.size(9.dp),
                         ) { }
