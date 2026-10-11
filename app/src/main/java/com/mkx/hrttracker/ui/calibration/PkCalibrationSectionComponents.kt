@@ -276,7 +276,7 @@ private fun PkCalibrationRouteSummaryCard(
                 PkCalibrationRowChevron()
             }
             HrtSection(title = null, modifier = Modifier.padding(top = 12.dp)) {
-                rows.forEach { row -> item { PkCalibrationRouteSummaryCell(row = row) } }
+                rows.forEach { row -> item { PkCalibrationRouteSummaryCell(row = row, onClick = onOpen) } }
                 if (reviewCount > 0) {
                     item { PkCalibrationReviewEntry(count = reviewCount, onClick = onOpenReview) }
                 }
@@ -307,12 +307,13 @@ private fun PkCalibrationReviewEntry(
     )
 }
 
-/** Sub-card for one adjusted route: tile, name, labs and confidence. */
+/** Sub-card for one adjusted route: tile, name, labs and confidence. Opens the routes sheet. */
 @Composable
-private fun PkCalibrationRouteSummaryCell(row: PkCalibrationRouteRowUiState) {
+private fun PkCalibrationRouteSummaryCell(row: PkCalibrationRouteRowUiState, onClick: () -> Unit) {
     PkCalibrationSubCard(
         title = stringResource(row.route.applicationType.labelRes),
         supportingText = pkCalibrationRouteMeta(row),
+        onClick = onClick,
         leading = {
             PkCalibrationRouteTile(
                 route = row.route,
