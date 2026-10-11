@@ -1,5 +1,6 @@
 package com.mkx.hrttracker.ui.main
 
+import com.mkx.hrttracker.ui.calibration.PkCalibrationRoutesSheet
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.ReportDrawnWhen
@@ -136,6 +137,8 @@ fun MainScreen(
     val scrollState = rememberScrollState()
     var highlightFlashReady by remember { mutableStateOf(false) }
     var showCardLayoutDialog by remember { mutableStateOf(false) }
+    val pkCalibrationSheetState by viewModel.pkCalibrationSheetState.collectAsStateWithLifecycle()
+    var showCalibrationRoutesSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(highlightRequest, highlightEffectsEnabled) {
         val activeRequest = highlightRequest
@@ -236,6 +239,7 @@ fun MainScreen(
                 onE2ChartWindowOptionSelected = viewModel::setHomeE2ChartWindowOption,
                 onLowStockSectionExpandedChange = viewModel::setLowStockSectionExpanded,
                 onOpenTimeline = onOpenTimeline,
+                onCalibrationClick = { showCalibrationRoutesSheet = true },
                 claimE2ChartIntroAnimation = viewModel::claimHomeE2ChartIntroAnimation,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -250,6 +254,14 @@ fun MainScreen(
                 showCardLayoutDialog = false
             },
             onDismiss = { showCardLayoutDialog = false },
+        )
+    }
+    // The hero icon's sheet is the calibration page's routes sheet over the
+    // same live evaluation; null (before the first evaluation) is its loading state.
+    if (showCalibrationRoutesSheet) {
+        PkCalibrationRoutesSheet(
+            uiState = pkCalibrationSheetState,
+            onDismissRequest = { showCalibrationRoutesSheet = false },
         )
     }
 }

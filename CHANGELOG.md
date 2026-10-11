@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tap the calibration icon beside the E2 value on Home to open the calibration routes sheet, the same one as on the calibration page.
+
 ### Fixed
 
 - Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its shaded range describe the same fit.

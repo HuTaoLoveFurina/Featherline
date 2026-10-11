@@ -1121,6 +1121,7 @@
     <!-- Route-isolated E2 calibration (PK) — hero and counts -->
     <string name="calibration_pk_hero_population">Population estimate</string>
     <string name="calibration_pk_hero_adjusted">Calibrated</string>
+    <string name="calibration_pk_routes_sheet_loading">Calibration is still loading.</string>
     <plurals name="calibration_pk_supporting_lab_count">
         <item quantity="one">%1$d result</item>
         <item quantity="other">%1$d results</item>

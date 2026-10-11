@@ -1,5 +1,6 @@
 package com.mkx.hrttracker.ui.calibration
 
+import com.mkx.hrttracker.ui.components.SupportMessageListItem
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -152,17 +153,29 @@ private fun PkCalibrationSheetItem(
 /**
  * Adjusted routes first, each with a short warning line; population routes
  * follow in their own group. Results to check live on the section's banner.
+ * A null [uiState] (Home, before the first evaluation) and a state with no
+ * rows show the app's one-line empty state instead.
  */
 @Composable
 fun PkCalibrationRoutesSheet(
-    uiState: PkCalibrationUiState,
+    uiState: PkCalibrationUiState?,
     onDismissRequest: () -> Unit,
 ) {
     PkCalibrationSheet(
         title = stringResource(R.string.calibration_pk_routes_card_title),
         onDismissRequest = onDismissRequest,
     ) {
-        val (adjusted, population) = uiState.routeRows.partition { row -> row.displayState.isAdjusted }
+        val emptyTextRes = pkCalibrationRoutesSheetEmptyTextRes(uiState)
+        if (emptyTextRes != null) {
+            SupportMessageListItem(
+                text = stringResource(emptyTextRes),
+                painter = painterResource(R.drawable.ic_info),
+                modifier = Modifier.padding(top = 12.dp),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
+            return@PkCalibrationSheet
+        }
+        val (adjusted, population) = uiState?.routeRows.orEmpty().partition { row -> row.displayState.isAdjusted }
         if (adjusted.isNotEmpty()) {
             HrtSection(title = stringResource(R.string.calibration_pk_hero_adjusted)) {
                 adjusted.forEach { row ->

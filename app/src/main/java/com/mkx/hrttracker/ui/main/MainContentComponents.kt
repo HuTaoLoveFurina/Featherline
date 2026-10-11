@@ -491,6 +491,8 @@ internal fun MainE2HeroCard(
     trendReady: Boolean = true,
     hideReferenceRanges: Boolean = false,
     pkCalibration: MainPkCalibrationUiState? = null,
+    /** The calibration icon opens the calibration page's routes sheet. */
+    onCalibrationClick: () -> Unit = {},
 ) {
     val showSkeleton = !trendReady
     val trendDeltaLabel = mainTrendDeltaLabel(
@@ -696,20 +698,29 @@ internal fun MainE2HeroCard(
                                 }
                             }
                             if (!showSkeleton && pkCalibration != null) {
-                                Icon(
-                                    painter = painterResource(
-                                        if (pkCalibration.adjusted) R.drawable.ic_experiment else R.drawable.ic_group
-                                    ),
-                                    contentDescription = stringResource(
-                                        if (pkCalibration.adjusted) {
-                                            R.string.calibration_pk_hero_adjusted
-                                        } else {
-                                            R.string.calibration_pk_hero_population
-                                        }
-                                    ),
-                                    tint = heroSupportingColor,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                                CompositionLocalProvider(
+                                    LocalMinimumInteractiveComponentSize provides Dp.Unspecified
+                                ) {
+                                    IconButton(
+                                        onClick = onCalibrationClick,
+                                        modifier = Modifier.size(24.dp),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(
+                                                if (pkCalibration.adjusted) R.drawable.ic_experiment else R.drawable.ic_group
+                                            ),
+                                            contentDescription = stringResource(
+                                                if (pkCalibration.adjusted) {
+                                                    R.string.calibration_pk_hero_adjusted
+                                                } else {
+                                                    R.string.calibration_pk_hero_population
+                                                }
+                                            ),
+                                            tint = heroSupportingColor,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

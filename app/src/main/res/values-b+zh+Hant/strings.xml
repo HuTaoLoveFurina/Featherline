@@ -1048,6 +1048,7 @@
     <!-- Route-isolated E2 calibration (PK) — hero and counts -->
     <string name="calibration_pk_hero_population">人群估算</string>
     <string name="calibration_pk_hero_adjusted">已校準</string>
+    <string name="calibration_pk_routes_sheet_loading">校準仍在載入中</string>
     <plurals name="calibration_pk_supporting_lab_count">
         <item quantity="other">%1$d 項結果</item>
     </plurals>
