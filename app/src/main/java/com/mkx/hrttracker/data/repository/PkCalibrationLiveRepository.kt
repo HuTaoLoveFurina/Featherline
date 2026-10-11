@@ -100,7 +100,7 @@ class PkCalibrationLiveRepository @Inject constructor(
                 input = build.input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain, statusEpochMillis = nowMillis),
+                render = evaluation.renderFor(domain),
             )
         }
     }
@@ -125,7 +125,7 @@ class PkCalibrationLiveRepository @Inject constructor(
                 input = input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain, statusEpochMillis = nowMillis),
+                render = evaluation.renderFor(domain),
             )
         }
     }

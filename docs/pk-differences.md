@@ -226,8 +226,9 @@ multiplies that route's population contribution by `e^{beta_r}`.
   below 0.25 and hasn't been reviewed, or when the fit is ambiguous.
 - **What "calibrated" means on screen.** The Home hero and the calibration status
   row call the estimate calibrated when a fitted route is at least 20%
-  of the drawn signal at the current instant, and the band is drawn only
-  over the times where that holds. An old route's exponential tail stays
+  of the drawn signal somewhere in the chart's range, and the band is
+  drawn only over the times where that holds, so "calibrated" and a
+  visible band go together. An old route's exponential tail stays
   positive for months, so "any contribution" would label a curve from a
   new, uncalibrated route as calibrated.
 - **Review.** Per-result choices (`REVIEWED`, `EXCLUDED`) live in

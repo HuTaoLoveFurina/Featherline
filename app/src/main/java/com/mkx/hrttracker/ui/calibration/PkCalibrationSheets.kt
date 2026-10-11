@@ -149,10 +149,10 @@ private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
  * Adjusted routes first, each with a short warning line; population routes
  * follow in their own group. Results to check live on the section's banner.
  * Grouping is the fit's: a calibrated route stays under Adjusted even where
- * its current share of the estimate is too small to shape it (so the hero
- * says "population"); that row says so with a pill instead of being relabeled.
- * [smallShareRoutes] names those rows. Home passes the set judged at the
- * same instant as its hero (the snapshot's), so icon and pill never disagree.
+ * its share of the charted estimate is too small to shape it (so the hero
+ * may say "population"); that row says so with a pill instead of being
+ * relabeled. [smallShareRoutes] names those rows. Home passes the set judged
+ * over its own chart range (the snapshot's), so icon and pill never disagree.
  * A null [uiState] (Home, before the first evaluation) and a state with no
  * rows show the app's one-line empty state instead.
  */
@@ -218,7 +218,7 @@ fun PkCalibrationRoutesSheet(
  * Route card: tile, name, supporting line (results + confidence). Adjusted
  * routes add short warning pills (the adjustment applies regardless), and a
  * "small share" pill when [shapesEstimate] is false: the route is calibrated
- * but is under the support share of the estimate at the status instant, so
+ * but is under the support share of the estimate across the chart range, so
  * the hero does not count it. Outliers are left to the review banner.
  * Population routes are a bare name unless the fit failed for them.
  */

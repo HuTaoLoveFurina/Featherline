@@ -612,19 +612,18 @@ class HomeSnapshotRepository @Inject constructor(
         val pkExpired = existingSnapshot?.pkProjection?.let { record ->
             isPkProjectionExpired(record, now, zoneId)
         } == true
-        // Home's clock runs on past the calibration status instant; once a
-        // route crosses the support share the hero label and "small share"
-        // pills are wrong. Rebuild, but the curve and band stay valid (and
-        // shown) until the new snapshot lands.
-        val calibrationStatusExpired = existingSnapshot?.pkCalibration?.statusExpiresAtEpochMillis
-            ?.let { expiresAt -> now.atZone(zoneId).toInstant().toEpochMilli() >= expiresAt } == true
+        // The calibration badge describes the build day's visible window. A
+        // later day's chart has moved on (the snapshot stays usable for days),
+        // so rebuild; the old one stays on screen until the new one lands.
+        val calibrationWindowMoved = existingSnapshot?.pkCalibration != null &&
+            existingSnapshot.anchorDateEpochDay != now.toLocalDate().toEpochDay()
         if (
             !force &&
             existingSnapshot != null &&
             existingSnapshot.generation >= gen &&
             isSnapshotUsable(existingSnapshot, now, zoneId, option) &&
             !pkExpired &&
-            !calibrationStatusExpired
+            !calibrationWindowMoved
         ) {
             diagnosticsLogger.info(
                 TAG,
@@ -632,12 +631,15 @@ class HomeSnapshotRepository @Inject constructor(
                         "${existingSnapshot.diagnosticSummary()} now=$now"
             )
             // A kept snapshot needs its expiry timer too: after a process
-            // restart nothing else rebuilds when its planned slot passes.
-            existingSnapshot.nextExpiryRefreshAt()?.let { scheduleExpiryRefresh(it, now, zoneId) }
+            // restart nothing else rebuilds when its planned slot passes. An
+            // expiry before the window end is a planned slot.
+            existingSnapshot.pkProjection
+                ?.takeIf { it.pkProjectionExpiresAtEpochMillis < it.windowEndEpochMillis }
+                ?.let { scheduleExpiryRefresh(Instant.ofEpochMilli(it.pkProjectionExpiresAtEpochMillis), now, zoneId) }
             return null
         }
-        if (pkExpired || calibrationStatusExpired) {
-            val reason = if (pkExpired) "pk_projection_expired" else "calibration_status_expired"
+        if (pkExpired || calibrationWindowMoved) {
+            val reason = if (pkExpired) "pk_projection_expired" else "calibration_window_moved"
             diagnosticsLogger.info(
                 TAG,
                 "home_snapshot_refresh_continuing reason=$reason " +
@@ -902,10 +904,13 @@ class HomeSnapshotRepository @Inject constructor(
                             .map { hours -> windowStartMillis + (hours * 3_600_000.0).roundToLong() }
                             .filter { millis -> millis in windowStartMillis..windowEndMillis },
                     )?.let { domain ->
+                        // The badge describes the visible chart; the domain
+                        // runs on through the cached forecast buffer.
                         calibration.renderFor(
                             domain = domain,
-                            statusEpochMillis = projection.generatedAt.toEpochMilli(),
                             doseEvents = bandEvents,
+                            statusRange = windowStartMillis..
+                                    windowStartMillis + option.chartWindowHours * 3_600_000L,
                         )
                     }
                 }
@@ -941,7 +946,7 @@ class HomeSnapshotRepository @Inject constructor(
         // Hero/status summary, so Home never waits for the live evaluation.
         val calibrationRecord = calibration?.let { evaluation ->
             // The render narrows the supported routes to those shaping the
-            // estimate at the prediction instant. When it failed (null) the
+            // estimate somewhere in the chart range. When it failed (null) the
             // curve still carries displayParams, so name the supported routes
             // rather than call a personalized curve "population".
             val effective = homeRender?.effectivePromotedRoutes
@@ -961,7 +966,6 @@ class HomeSnapshotRepository @Inject constructor(
                 bandUnavailable = effective.isNotEmpty() &&
                         homeRender?.bandState != PkCalibrationBandState.READY,
                 effectiveRoutes = effective.map(PkCalibrationRoute::stableId),
-                statusExpiresAtEpochMillis = homeRender?.effectiveRoutesChangeEpochMillis,
             )
         }
         // Expire at the soonest planned dose after generation time — the
@@ -1062,7 +1066,9 @@ class HomeSnapshotRepository @Inject constructor(
                     )
                     homeSnapshotStore.writeSnapshot(snapshotRecord)
                     StartupTiming.mark("home_snapshot_rebuilt")
-                    snapshotRecord.nextExpiryRefreshAt()?.let { scheduleExpiryRefresh(it, now, zoneId) }
+                    // Only a planned slot needs a timer; a window-end expiry is
+                    // days out and the date-change refresh gets there first.
+                    nextPlannedAt?.let { scheduleExpiryRefresh(it, now, zoneId) }
                     diagnosticsLogger.info(
                         TAG,
                         "home_snapshot_refreshed ${snapshotRecord.diagnosticSummary()}"

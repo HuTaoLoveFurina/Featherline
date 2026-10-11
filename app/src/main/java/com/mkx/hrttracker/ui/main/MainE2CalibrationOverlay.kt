@@ -65,10 +65,10 @@ data class MainPkCalibrationUiState(
     val renderUnavailable: Boolean,
     val bandUnavailable: Boolean,
     val band: MainE2CalibrationBand?,
-    /** The routes behind [adjusted], at the hero's own status instant. */
+    /** The routes behind [adjusted], over the snapshot's chart range. */
     val effectivePromotedRoutes: List<PkCalibrationRoute> = emptyList(),
 ) {
-    /** The estimate sheet's "small share" rows, judged at the same instant as the hero. */
+    /** The estimate sheet's "small share" rows, judged over the same range as the hero. */
     fun smallShareRoutes(sheet: PkCalibrationUiState?): Set<PkCalibrationRoute> =
         pkCalibrationSmallShareRoutes(
             routeRows = sheet?.routeRows.orEmpty(),

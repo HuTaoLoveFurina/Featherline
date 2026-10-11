@@ -140,9 +140,9 @@ enum class PkRouteCalibrationDisplayState {
 
 /**
  * What the central curve was simulated with: PERSONALIZED when any supported
- * promoted route is applied in the chart range, POPULATION otherwise. It says
- * nothing about the status instant; [PkCalibrationRenderResult.effectivePromotedRoutes]
- * names the routes that shape the estimate there.
+ * promoted route is applied in the chart range, POPULATION otherwise. An
+ * applied route can be too small a share to shape anything;
+ * [PkCalibrationRenderResult.effectivePromotedRoutes] names those that do.
  */
 enum class PkCalibrationRenderState {
     POPULATION,
@@ -269,16 +269,11 @@ data class PkCalibrationRenderResult(
     val renderState: PkCalibrationRenderState,
     /**
      * Supported promoted routes that are at least the support share of the
-     * drawn signal at the status instant: what Home and the status row call
-     * the estimate calibrated by.
+     * drawn signal at some knot of the status range: what Home and the
+     * status row call the estimate calibrated by. Non-empty exactly when the
+     * band has knots there.
      */
     val effectivePromotedRoutes: List<PkCalibrationRoute> = emptyList(),
-    /**
-     * First instant after the status instant (within the domain, to the
-     * minute) where [effectivePromotedRoutes] would differ; null when they
-     * hold to the range end. Home expires its cached status here.
-     */
-    val effectiveRoutesChangeEpochMillis: Long? = null,
     /**
      * Every supported promoted route with a contribution in this range, as
      * applied to [centralCurve]; non-population exactly when [renderState] is

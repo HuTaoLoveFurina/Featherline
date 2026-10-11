@@ -1124,7 +1124,7 @@
     <string name="calibration_pk_reason_short_fit">擬合較差</string>
     <string name="calibration_pk_reason_short_ambiguous">擬合不明確</string>
     <string name="calibration_pk_reason_short_outlier">結果不一致</string>
-    <string name="calibration_pk_route_pill_small_share">目前佔比很小</string>
+    <string name="calibration_pk_route_pill_small_share">佔比過低</string>
     <string name="calibration_pk_review_summary_outlier">與%1$s的估算相差較大</string>
     <string name="calibration_pk_review_summary_non_positive">數值需大於零</string>
     <string name="calibration_pk_review_summary_accepted">已保留，仍計入估算</string>

@@ -1199,7 +1199,7 @@
     <string name="calibration_pk_reason_short_fit">Poor fit</string>
     <string name="calibration_pk_reason_short_ambiguous">Unclear fit</string>
     <string name="calibration_pk_reason_short_outlier">Conflicting result</string>
-    <string name="calibration_pk_route_pill_small_share">Small share right now</string>
+    <string name="calibration_pk_route_pill_small_share">Small share</string>
     <string name="calibration_pk_review_summary_outlier">Far from the %1$s estimate</string>
     <string name="calibration_pk_review_summary_non_positive">Value must be above zero</string>
     <string name="calibration_pk_review_summary_accepted">Kept, still counted</string>

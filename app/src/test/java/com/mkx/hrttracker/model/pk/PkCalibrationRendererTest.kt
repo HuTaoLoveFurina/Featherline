@@ -54,9 +54,9 @@ class PkCalibrationRendererTest {
         assertEquals(PkCalibrationBandState.NOT_APPLICABLE_POPULATION, readyRender.bandState)
         assertPopulationParity(readyRender, readyPopulation)
         assertNull(
-            PkCalibrationRenderer.render(failedEvaluation, domain(hours = 24, intervalHours = 6), OriginMillis)
+            PkCalibrationRenderer.render(failedEvaluation, domain(hours = 24, intervalHours = 6))
         )
-        assertNull(failedEvaluation.renderFor(domain(hours = 24, intervalHours = 6), OriginMillis))
+        assertNull(failedEvaluation.renderFor(domain(hours = 24, intervalHours = 6)))
     }
 
     @Test
@@ -90,11 +90,11 @@ class PkCalibrationRendererTest {
         val actual = render(evaluation, renderDomain)
         val result = evaluation.result
 
-        // Both fitted routes shape the curve; which ones the status names is
-        // judged at the status instant.
+        // Both fitted routes shape the curve; the status names those at least
+        // the support share somewhere in the range.
         assertEquals(result.displayParams, actual.effectiveDisplayParams)
         assertEquals(
-            shapingRoutes(actual, evaluation, renderDomain.rangeEndEpochMillis),
+            rangeShapingRoutes(actual, evaluation),
             actual.effectivePromotedRoutes,
         )
         assertTrue(actual.effectivePromotedRoutes.isNotEmpty())
@@ -131,7 +131,7 @@ class PkCalibrationRendererTest {
 
         assertEquals(PkCalibrationRoute.entries, evaluation.result.supportedPromotedRoutes)
         assertEquals(
-            shapingRoutes(actual, evaluation, renderDomain.rangeEndEpochMillis),
+            rangeShapingRoutes(actual, evaluation),
             actual.effectivePromotedRoutes,
         )
         assertTrue(actual.effectivePromotedRoutes.isNotEmpty())
@@ -164,49 +164,17 @@ class PkCalibrationRendererTest {
             late.effectiveDisplayParams.routeLogScale.keys,
         )
         assertEquals(
-            shapingRoutes(late, evaluation, lateDomain.rangeEndEpochMillis),
+            rangeShapingRoutes(late, evaluation),
             late.effectivePromotedRoutes,
         )
-        // At the oral dose instant its contribution is exactly zero, so the
-        // status names injection alone even though oral is applied in range.
-        val atOralDose = render(evaluation, lateDomain, statusEpochMillis = lateDomain.rangeStartEpochMillis)
-        assertEquals(listOf(PkCalibrationRoute.INJECTION), atOralDose.effectivePromotedRoutes)
-        assertEquals(late.effectiveDisplayParams, atOralDose.effectiveDisplayParams)
-        assertEquals(listOf(PkCalibrationRoute.INJECTION, PkCalibrationRoute.ORAL), evaluation.result.promotedRoutes)
-    }
-
-    @Test
-    fun effectiveRoutesChange_isTheMinuteTheShapingRoutesCross() {
-        // Home caches the status at its prediction instant; as oral absorbs
-        // after its dose it crosses the support share, and the cache must
-        // expire then rather than at the next planned dose.
-        val events = listOf(
-            event(PkRoute.INJECTION, 0.0, 1.0, PkCompound.EV),
-            event(PkRoute.ORAL, 100.0, 2.0),
-        )
-        val evaluation = evaluation(
-            events = events,
-            promotedQByRoute = mapOf(
-                PkCalibrationRoute.INJECTION to ln(1.1),
-                PkCalibrationRoute.ORAL to ln(1.2),
-            ),
-        )
-        val domain = domain(startHours = 100, hours = 124, intervalHours = 6)
-        val atOralDose = render(evaluation, domain, statusEpochMillis = domain.rangeStartEpochMillis)
-        assertEquals(listOf(PkCalibrationRoute.INJECTION), atOralDose.effectivePromotedRoutes)
-        val changeAt = requireNotNull(atOralDose.effectiveRoutesChangeEpochMillis)
-        assertTrue(changeAt > domain.rangeStartEpochMillis)
-
-        val justBefore = render(evaluation, domain, statusEpochMillis = changeAt - 60_000L)
-        assertEquals(atOralDose.effectivePromotedRoutes, justBefore.effectivePromotedRoutes)
-        val after = render(evaluation, domain, statusEpochMillis = changeAt)
+        // At the oral dose its contribution is exactly zero, but it shapes
+        // the range once absorbed: the status holds for the whole range
+        // instead of following the clock.
         assertEquals(
             listOf(PkCalibrationRoute.INJECTION, PkCalibrationRoute.ORAL),
-            after.effectivePromotedRoutes,
+            late.effectivePromotedRoutes,
         )
-
-        val atRangeEnd = render(evaluation, domain, statusEpochMillis = domain.rangeEndEpochMillis)
-        assertEquals(null, atRangeEnd.effectiveRoutesChangeEpochMillis)
+        assertEquals(listOf(PkCalibrationRoute.INJECTION, PkCalibrationRoute.ORAL), evaluation.result.promotedRoutes)
     }
 
     @Test
@@ -237,6 +205,40 @@ class PkCalibrationRendererTest {
         assertEquals(listOf(PkCalibrationRoute.ORAL), oralDay.effectivePromotedRoutes)
         assertEquals(PkCalibrationRenderState.PERSONALIZED, oralDay.renderState)
         assertEquals(PkCalibrationBandState.READY, oralDay.bandState)
+
+        // A range spanning the switch is calibrated by oral, shaded only over
+        // the oral part: the status says calibrated exactly when a band shows.
+        val acrossSwitch = render(evaluation, domain(startHours = 1, hours = 168, intervalHours = 6))
+        assertEquals(listOf(PkCalibrationRoute.ORAL), acrossSwitch.effectivePromotedRoutes)
+        assertEquals(PkCalibrationBandState.READY, acrossSwitch.bandState)
+        assertTrue(acrossSwitch.bandKnots.size < acrossSwitch.centralCurve.size)
+        assertTrue(acrossSwitch.bandKnots.last().epochMillis < acrossSwitch.centralCurve.last().epochMillis)
+        listOf(actual, oralDay, acrossSwitch).forEach { render ->
+            assertEquals(render.bandKnots.isNotEmpty(), render.effectivePromotedRoutes.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun statusRange_ignoresCalibratedRoutesOnlyInTheHiddenForecast() {
+        // Home caches days of forecast past its visible chart. A calibrated
+        // oral dose planned out there is banded in the cache, but the badge
+        // describes the visible chart, where only the uncalibrated gel shows.
+        val events = (0..72 step 24).map { hour -> event(PkRoute.GEL, hour.toDouble(), 1.0) } +
+            event(PkRoute.ORAL, 120.0, 2.0)
+        val evaluation = evaluation(
+            events = events,
+            promotedQByRoute = mapOf(PkCalibrationRoute.ORAL to ln(1.3)),
+        )
+        val cached = domain(startHours = 1, hours = 168, intervalHours = 6)
+        val visible = cached.rangeStartEpochMillis..OriginMillis + 96 * HourMillis
+        val actual = requireNotNull(PkCalibrationRenderer.render(evaluation, cached, statusRange = visible))
+
+        assertTrue(actual.effectivePromotedRoutes.isEmpty())
+        assertEquals(PkCalibrationBandState.READY, actual.bandState)
+        assertTrue(actual.bandKnots.isNotEmpty())
+        assertTrue(actual.bandKnots.none { knot -> knot.epochMillis in visible })
+        // Over the whole cache the same render would call it calibrated.
+        assertEquals(listOf(PkCalibrationRoute.ORAL), render(evaluation, cached).effectivePromotedRoutes)
     }
 
     @Test
@@ -544,15 +546,24 @@ class PkCalibrationRendererTest {
     private fun render(
         evaluation: PkCalibrationEvaluation,
         domain: PkChartDomain,
-        statusEpochMillis: Long = domain.rangeEndEpochMillis,
     ): PkCalibrationRenderResult {
-        return requireNotNull(PkCalibrationRenderer.render(evaluation, domain, statusEpochMillis))
+        return requireNotNull(PkCalibrationRenderer.render(evaluation, domain))
+    }
+
+    /** The status contract: routes that are [shapingRoutes] at some central knot. */
+    private fun rangeShapingRoutes(
+        render: PkCalibrationRenderResult,
+        evaluation: PkCalibrationEvaluation,
+    ): List<PkCalibrationRoute> {
+        val shaping = render.centralCurve.flatMapTo(HashSet()) { point ->
+            shapingRoutes(render, evaluation, point.epochMillis)
+        }
+        return evaluation.result.supportedPromotedRoutes.filter(shaping::contains)
     }
 
     /**
-     * The renderer's contract for effective promotion: supported promoted
-     * routes at least the support share of the drawn (scaled) signal at
-     * [epochMillis].
+     * Supported promoted routes at least the support share of the drawn
+     * (scaled) signal at [epochMillis].
      */
     private fun shapingRoutes(
         render: PkCalibrationRenderResult,

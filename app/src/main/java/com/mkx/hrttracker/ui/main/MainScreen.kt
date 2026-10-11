@@ -262,7 +262,7 @@ fun MainScreen(
     // live evaluation, titled for the estimate and carrying its disclaimer;
     // null (before the first evaluation) is its loading state. The "small
     // share" rows come from the hero's own snapshot, not the live render: the
-    // two are judged at different instants and the sheet explains the icon.
+    // two are judged over different ranges and the sheet explains the icon.
     if (showCalibrationRoutesSheet) {
         val home = uiState.pkCalibration
         PkCalibrationRoutesSheet(

@@ -110,15 +110,12 @@ class HomeSnapshotCodecTest {
                 renderUnavailable = false,
                 bandUnavailable = false,
                 effectiveRoutes = listOf("injection"),
-                statusExpiresAtEpochMillis = 1_700_010_000_000L,
             ),
         )
         val decoded = HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(record))
         assertEquals(record.pkRouteLogScale, decoded.pkRouteLogScale)
         assertEquals(record.pkBandKnots, decoded.pkBandKnots)
         assertEquals(record.pkCalibration, decoded.pkCalibration)
-        val noStatusExpiry = record.copy(pkCalibration = record.pkCalibration?.copy(statusExpiresAtEpochMillis = null))
-        assertEquals(noStatusExpiry, HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(noStatusExpiry)))
         assertNull(HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(minimalRecord())).pkCalibration)
         assertEquals(100.0, decoded.pkBandKnots().first().p50Pgml, 0.0)
         assertEquals(listOf(0, 1), decoded.pkBandKnots().map { knot -> knot.segment })
@@ -127,42 +124,6 @@ class HomeSnapshotCodecTest {
         assertEquals(-0.1, params.logScaleFor(com.mkx.hrttracker.model.pk.PkCalibrationRoute.ORAL), 0.0)
         assertEquals(2, params.routeLogScale.size)
         assertEquals(emptyMap<String, Double>(), HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(minimalRecord())).pkRouteLogScale)
-    }
-
-    @Test
-    fun nextExpiryRefreshAt_isTheSoonerOfAPlannedSlotAndTheCalibrationStatus() {
-        val projection = HomePkProjectionRecord(
-            generatedAtEpochMillis = 10L,
-            windowStartEpochMillis = 0L,
-            windowEndEpochMillis = 100L,
-            pkProjectionExpiresAtEpochMillis = 60L,
-            concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-            timeH = emptyList(),
-            concentrations = emptyList(),
-            doseMarkers = emptyList(),
-            latestEstradiolEntry = null,
-            chartWindowHours = 168,
-            densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-            includesPostDoseOffsets = false,
-        )
-        val calibration = HomePkCalibrationRecord(
-            adjusted = true,
-            limitedConfidence = false,
-            renderUnavailable = false,
-            bandUnavailable = false,
-            effectiveRoutes = listOf("injection"),
-            statusExpiresAtEpochMillis = 40L,
-        )
-        val record = minimalRecord().copy(pkProjection = projection, pkCalibration = calibration)
-        assertEquals(Instant.ofEpochMilli(40L), record.nextExpiryRefreshAt())
-        assertEquals(
-            Instant.ofEpochMilli(60L),
-            record.copy(pkCalibration = calibration.copy(statusExpiresAtEpochMillis = null)).nextExpiryRefreshAt(),
-        )
-        // A window-end expiry needs no timer; the status still does.
-        val windowEnd = projection.copy(pkProjectionExpiresAtEpochMillis = 100L)
-        assertEquals(Instant.ofEpochMilli(40L), record.copy(pkProjection = windowEnd).nextExpiryRefreshAt())
-        assertNull(record.copy(pkProjection = windowEnd, pkCalibration = null).nextExpiryRefreshAt())
     }
 
     @Test

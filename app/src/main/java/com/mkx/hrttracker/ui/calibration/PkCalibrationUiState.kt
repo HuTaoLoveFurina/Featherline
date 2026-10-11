@@ -72,9 +72,9 @@ data class PkCalibrationRouteRowUiState(
 data class PkCalibrationUiState(
     val globalState: PkCalibrationGlobalState,
     /**
-     * Some supported route shapes the estimate at the status instant with a
-     * lab adjustment. Fit-level: [routeRows] can list an adjusted route while
-     * this is false (its current share is under the support share).
+     * Some supported route shapes the estimate in the chart range with a lab
+     * adjustment. Fit-level: [routeRows] can list an adjusted route while
+     * this is false (its share is under the support share throughout).
      */
     val adjusted: Boolean,
     /** True when an effective promoted route is still provisional. */
@@ -101,8 +101,8 @@ data class PkCalibrationUiState(
 }
 
 /**
- * Adjusted routes under the support share of the estimate at the status
- * instant: calibrated, but not among what the hero counts. Empty when the
+ * Adjusted routes under the support share of the estimate across the chart
+ * range: calibrated, but not among what the hero counts. Empty when the
  * render failed, since no share was computed then; the rows then stay plain.
  */
 fun pkCalibrationSmallShareRoutes(

@@ -193,28 +193,14 @@ data class HomePkBandKnotRecord(
 
 /** What Home needs to draw the calibration hero and chart notes on first frame. */
 data class HomePkCalibrationRecord(
-    /** Some route shapes the estimate at the prediction instant with a lab adjustment. */
+    /** Some route shapes the estimate in the chart range with a lab adjustment (a band is drawn). */
     val adjusted: Boolean,
     val limitedConfidence: Boolean,
     val renderUnavailable: Boolean,
     val bandUnavailable: Boolean,
     /** The routes behind [adjusted], by [PkCalibrationRoute.stableId]; the estimate sheet explains the rest. */
     val effectiveRoutes: List<String>,
-    /** When [effectiveRoutes] stop holding as Home's clock advances; null when they hold to the window end. */
-    val statusExpiresAtEpochMillis: Long? = null,
 )
-
-/**
- * When a timer should rebuild this snapshot: a planned slot passing (an
- * expiry before the window end) or the calibration status going stale. A
- * window-end expiry is days out and the date-change refresh gets there first.
- */
-fun HomeSnapshotRecord.nextExpiryRefreshAt(): Instant? = listOfNotNull(
-    pkProjection
-        ?.takeIf { projection -> projection.pkProjectionExpiresAtEpochMillis < projection.windowEndEpochMillis }
-        ?.pkProjectionExpiresAtEpochMillis,
-    pkCalibration?.statusExpiresAtEpochMillis,
-).minOrNull()?.let(Instant::ofEpochMilli)
 
 fun HomeSnapshotRecord.pkBandKnots(): List<PkPredictiveBandKnot> = pkBandKnots.map { knot ->
     PkPredictiveBandKnot(
@@ -373,8 +359,6 @@ internal object HomeSnapshotCodec {
                 stream.writeBoolean(calibration.renderUnavailable)
                 stream.writeBoolean(calibration.bandUnavailable)
                 stream.writeList(calibration.effectiveRoutes) { route -> writeString(route) }
-                stream.writeBoolean(calibration.statusExpiresAtEpochMillis != null)
-                calibration.statusExpiresAtEpochMillis?.let(stream::writeLong)
             }
         }
         return output.toByteArray()
@@ -422,7 +406,6 @@ internal object HomeSnapshotCodec {
                         renderUnavailable = stream.readBoolean(),
                         bandUnavailable = stream.readBoolean(),
                         effectiveRoutes = stream.readList { readString() },
-                        statusExpiresAtEpochMillis = if (stream.readBoolean()) stream.readLong() else null,
                     )
                 } else {
                     null
@@ -1147,8 +1130,7 @@ private const val TAG = "HomeSnapshotStore"
 // v21 appends medication log import provenance.
 // v22 appends the cached Home hero anchor tracked date.
 // v23-v26 append the calibration route log-scales, predictive band and hero summary.
-// v27 appends band knot segments; v28 the calibration status expiry.
-private const val SNAPSHOT_CODEC_VERSION = 28
+private const val SNAPSHOT_CODEC_VERSION = 27
 private const val POLICY_DISCRIMINATOR_INTERVAL = 0
 private const val POLICY_DISCRIMINATOR_BUDGET = 1
 private const val PATCH_SPECIFICATION_TOTAL_MG = 0

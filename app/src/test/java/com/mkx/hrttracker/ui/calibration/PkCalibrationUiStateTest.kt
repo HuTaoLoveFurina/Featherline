@@ -143,7 +143,7 @@ class PkCalibrationUiStateTest {
 
         // Both routes shape the estimate: nothing to explain.
         assertTrue(ui(base).smallShareRoutes.isEmpty())
-        // Oral calibrated but under the support share right now: its row says so.
+        // Oral calibrated but under the support share across the range: its row says so.
         assertEquals(
             setOf(PkCalibrationRoute.ORAL),
             pkCalibrationSmallShareRoutes(rows, listOf(PkCalibrationRoute.INJECTION), renderUnavailable = false),
