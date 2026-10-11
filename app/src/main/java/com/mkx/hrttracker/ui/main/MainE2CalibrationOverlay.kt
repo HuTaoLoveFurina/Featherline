@@ -36,6 +36,7 @@ import com.mkx.hrttracker.ui.calibration.PkCalibrationUiState
 import com.mkx.hrttracker.ui.calibration.applicationType
 import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
+import com.mkx.hrttracker.ui.theme.desaturateHct
 import com.mkx.hrttracker.util.labelRes
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.compose.cartesian.data.LineCartesianLayerDrawingModel
@@ -69,6 +70,13 @@ data class MainPkCalibrationUiState(
 /** Primary-color alphas of the 95% and 68% bands; the 68% band is drawn over the 95% one. */
 internal const val MainE2CalibrationBandOuterAlpha = 0.06f
 internal const val MainE2CalibrationBandInnerAlpha = 0.10f
+
+/** Desaturated primary the bands and their legend swatches are tinted with. */
+@Composable
+internal fun mainE2CalibrationBandColor(): Color {
+    val primary = MaterialTheme.colorScheme.primary
+    return remember(primary) { primary.desaturateHct() }
+}
 
 /** On-screen alpha where the 68% band overlaps the 95% band. */
 private const val MainE2CalibrationBandStackedAlpha =
@@ -330,17 +338,18 @@ internal fun MainPkCalibrationChartNote(pk: MainPkCalibrationUiState) {
             ) {
                 Spacer(modifier = Modifier.weight(1f))
                 val pkBandLegendText = stringResource(R.string.calibration_pk_band_legend)
+                val bandColor = mainE2CalibrationBandColor()
                 Box {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = MainE2CalibrationBandStackedAlpha),
+                            color = bandColor.copy(alpha = MainE2CalibrationBandStackedAlpha),
                             shape = MaterialTheme.shapes.extraSmall,
                             modifier = Modifier.size(9.dp),
                         ) { }
                         Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = MainE2CalibrationBandOuterAlpha),
+                            color = bandColor.copy(alpha = MainE2CalibrationBandOuterAlpha),
                             shape = MaterialTheme.shapes.extraSmall,
                             modifier = Modifier.size(9.dp),
                         ) { }
