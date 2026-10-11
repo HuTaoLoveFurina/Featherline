@@ -224,7 +224,7 @@ internal fun MedicationCardWithStockSubcard(
                             containerColor = stockSubcardContainerColor,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp),
+                                .padding(bottom = 6.dp),
                             shape = MaterialTheme.shapes.small,
                             mutationPreviewDoseMagnitude = stockMutationPreviewDoseMagnitude,
                             previewPostMutationState = previewPostMutationState,

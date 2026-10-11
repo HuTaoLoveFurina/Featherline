@@ -1,5 +1,8 @@
 package com.mkx.hrttracker.ui.calibration
 
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.layout.heightIn
+import com.mkx.hrttracker.ui.components.SupportMessageListItem
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -21,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.ui.components.EditorSegmentedListItem
 import com.mkx.hrttracker.ui.components.HazeModalBottomSheet
 import com.mkx.hrttracker.ui.components.HrtSection
+import com.mkx.hrttracker.ui.components.PreferenceSegmentedListItem
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerKind
 import com.mkx.hrttracker.ui.medication.MedicationEditorSheetScaffold
 import com.mkx.hrttracker.ui.components.cjkTextOffset
@@ -81,9 +84,9 @@ internal fun PkCalibrationSheet(
     onConfirm: (() -> Unit)? = null,
     secondaryButtonText: String? = null,
     onSecondary: (() -> Unit)? = null,
+    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope: CoroutineScope = rememberCoroutineScope()
     val dismiss = { hideBottomSheet(scope, sheetState, onDismissRequest) }
     MedicationEditorSheetScaffold(
@@ -102,46 +105,39 @@ internal fun PkCalibrationSheet(
     )
 }
 
-/** Icon-box + title + body row shared by the coaching/edu sheets. */
+/** Icon-box + title + body card shared by the edu sheet's pages; lives in an HrtSection. */
 @Composable
 private fun PkCalibrationSheetItem(
     @DrawableRes iconRes: Int,
     @StringRes titleRes: Int,
     @StringRes bodyRes: Int,
 ) {
-    Row(modifier = Modifier.padding(top = 12.dp)) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(MaterialTheme.shapes.medium)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            val title = stringResource(titleRes)
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.cjkTextOffset(title),
-            )
-            val body = stringResource(bodyRes)
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .cjkTextOffset(body),
-            )
-        }
+    PreferenceSegmentedListItem(
+        title = stringResource(titleRes),
+        supportingText = stringResource(bodyRes),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        titleTextStyle = MaterialTheme.typography.titleSmall,
+        supportingTextStyle = MaterialTheme.typography.bodySmall,
+        leadingContent = { PkCalibrationSheetIcon(iconRes) },
+    )
+}
+
+/** The edu cards' tinted 36dp icon box. */
+@Composable
+private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -152,27 +148,63 @@ private fun PkCalibrationSheetItem(
 /**
  * Adjusted routes first, each with a short warning line; population routes
  * follow in their own group. Results to check live on the section's banner.
+ * Grouping is the fit's: a calibrated route stays under Adjusted even where
+ * its share of the charted estimate is too small to shape it (so the hero
+ * may say "population"); that row says so with a pill instead of being
+ * relabeled. [smallShareRoutes] names those rows. Home passes the set judged
+ * over its own chart range (the snapshot's), so icon and pill never disagree.
+ * A null [uiState] (Home, before the first evaluation) and a state with no
+ * rows show the app's one-line empty state instead.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PkCalibrationRoutesSheet(
-    uiState: PkCalibrationUiState,
+    uiState: PkCalibrationUiState?,
     onDismissRequest: () -> Unit,
+    title: String = stringResource(R.string.calibration_pk_routes_card_title),
+    disclaimerKinds: List<MedicalDisclaimerKind> = emptyList(),
+    smallShareRoutes: Set<PkCalibrationRoute> = uiState?.smallShareRoutes.orEmpty(),
 ) {
     PkCalibrationSheet(
-        title = stringResource(R.string.calibration_pk_routes_card_title),
+        title = title,
         onDismissRequest = onDismissRequest,
+        disclaimerKinds = disclaimerKinds,
     ) {
-        val (adjusted, population) = uiState.routeRows.partition { row -> row.displayState.isAdjusted }
+        val emptyTextRes = pkCalibrationRoutesSheetEmptyTextRes(uiState)
+        if (emptyTextRes != null) {
+            SupportMessageListItem(
+                text = stringResource(emptyTextRes),
+                painter = painterResource(R.drawable.ic_info),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
+            return@PkCalibrationSheet
+        }
+        val state = uiState ?: return@PkCalibrationSheet
+        val (adjusted, population) = state.routeRows.partition { row -> row.displayState.isAdjusted }
+        // Sections spaced like every page's consecutive sections; the first
+        // drops its header's top padding so it sits on the scaffold's title gap.
         if (adjusted.isNotEmpty()) {
-            HrtSection(title = stringResource(R.string.calibration_pk_hero_adjusted)) {
+            HrtSection(
+                title = stringResource(R.string.calibration_pk_hero_adjusted),
+                topPadding = false,
+            ) {
                 adjusted.forEach { row ->
-                    item { PkCalibrationRouteCard(row) }
+                    item {
+                        PkCalibrationRouteCard(
+                            row = row,
+                            shapesEstimate = row.route !in smallShareRoutes,
+                        )
+                    }
                 }
             }
         }
         if (population.isNotEmpty()) {
+            if (adjusted.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
+            }
             HrtSection(
                 title = stringResource(R.string.calibration_pk_hero_population),
+                topPadding = adjusted.isNotEmpty(),
             ) {
                 population.forEach { row ->
                     item { PkCalibrationRouteCard(row) }
@@ -184,13 +216,18 @@ fun PkCalibrationRoutesSheet(
 
 /**
  * Route card: tile, name, supporting line (results + confidence). Adjusted
- * routes add short warning pills (the adjustment applies regardless);
- * outliers are left to the review banner. Population routes are a bare name
- * unless the fit failed for them.
+ * routes add short warning pills (the adjustment applies regardless), and a
+ * "small share" pill when [shapesEstimate] is false: the route is calibrated
+ * but is under the support share of the estimate across the chart range, so
+ * the hero does not count it. Outliers are left to the review banner.
+ * Population routes are a bare name unless the fit failed for them.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PkCalibrationRouteCard(row: PkCalibrationRouteRowUiState) {
+private fun PkCalibrationRouteCard(
+    row: PkCalibrationRouteRowUiState,
+    shapesEstimate: Boolean = true,
+) {
     val adjusted = row.displayState.isAdjusted
     EditorSegmentedListItem(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -236,16 +273,21 @@ private fun PkCalibrationRouteCard(row: PkCalibrationRouteRowUiState) {
                     (reason == PkCalibrationReason.UNCERTAIN &&
                         row.confidence == PkCalibrationRouteConfidence.LOW)
             }
-            if (adjusted && warnings.isNotEmpty()) {
+            val pills = warnings.map { reason -> stringResource(reason.labelRes) } +
+                listOfNotNull(
+                    stringResource(R.string.calibration_pk_route_pill_small_share)
+                        .takeIf { !shapesEstimate }
+                )
+            if (adjusted && pills.isNotEmpty()) {
                 FlowRow(
                     // Aligns under the name (tile 34 + gap 12).
-                    modifier = Modifier.padding(start = 46.dp, top = 8.dp),
+                    modifier = Modifier.padding(start = 46.dp, top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    warnings.forEach { reason ->
+                    pills.forEach { label ->
                         HrtPill(
-                            label = stringResource(reason.labelRes),
+                            label = label,
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                             size = HrtPillSize.Small,
@@ -261,17 +303,23 @@ private fun PkCalibrationRouteCard(row: PkCalibrationRouteRowUiState) {
 // Review queue sheet
 // ---------------------------------------------------------------------------
 
-/** One card per lab that needs review; the caller renders each lab row. */
+/**
+ * One card per lab that needs review; the caller renders each lab row and
+ * owns [sheetState] so a row tap can hide the sheet before navigating.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PkCalibrationReviewSheet(
     count: Int,
     onDismissRequest: () -> Unit,
+    sheetState: SheetState,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     PkCalibrationSheet(
         title = pluralStringResource(R.plurals.calibration_pk_review_count, count, count),
         onDismissRequest = onDismissRequest,
         confirmButtonText = stringResource(R.string.journal_done),
+        sheetState = sheetState,
         content = content,
     )
 }
@@ -285,9 +333,14 @@ fun PkCalibrationReviewSheet(
  * Next advances, Back returns, Finish (last page) dismisses. Pages slide in
  * the direction of travel; the sheet wraps and animates between their heights.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PkCalibrationEduSheet(onDismissRequest: () -> Unit) {
-    var page by rememberSaveable { mutableIntStateOf(0) }
+fun PkCalibrationEduSheet(
+    onDismissRequest: () -> Unit,
+    // Previews open straight onto the second page.
+    initialPage: Int = 0,
+) {
+    var page by rememberSaveable { mutableIntStateOf(initialPage) }
     val lastPage = page == 1
     PkCalibrationSheet(
         // The title slides with its page below.
@@ -312,13 +365,20 @@ fun PkCalibrationEduSheet(onDismissRequest: () -> Unit) {
             label = "pkEduPage",
         ) { shownPage ->
             Column {
-                Text(
-                    text = stringResource(
-                        if (shownPage == 1) R.string.calibration_pk_coaching_row_title
-                        else R.string.calibration_pk_edu_title
-                    ),
-                    style = MaterialTheme.typography.titleLarge,
-                )
+                // The scaffold header's box, so this page title sits where
+                // every other sheet title does.
+                Box(
+                    modifier = Modifier.heightIn(min = ButtonDefaults.MinHeight),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (shownPage == 1) R.string.calibration_pk_coaching_row_title
+                            else R.string.calibration_pk_edu_title
+                        ),
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                }
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_small)))
                 if (shownPage == 1) PkCalibrationCoachingPage() else PkCalibrationEduPage()
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
@@ -335,72 +395,85 @@ fun PkCalibrationEduSheet(onDismissRequest: () -> Unit) {
 
 @Composable
 private fun PkCalibrationEduPage() {
-    val intro = stringResource(R.string.calibration_pk_edu_intro)
-    Text(
-        text = intro,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .cjkTextOffset(intro),
-    )
-    PkCalibrationEduHeader(R.string.calibration_pk_edu_does_header)
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_tune,
-        titleRes = R.string.calibration_pk_edu_does_routes_title,
-        bodyRes = R.string.calibration_pk_edu_does_routes_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_labs,
-        titleRes = R.string.calibration_pk_edu_does_band_title,
-        bodyRes = R.string.calibration_pk_edu_does_band_body,
-    )
+    // Sits on the scaffold's title gap, so its header drops the top padding.
+    HrtSection(
+        title = stringResource(R.string.calibration_pk_edu_does_header),
+        topPadding = false,
+    ) {
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_experiment,
+                titleRes = R.string.calibration_pk_edu_intro_title,
+                bodyRes = R.string.calibration_pk_edu_intro,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_route,
+                titleRes = R.string.calibration_pk_edu_does_routes_title,
+                bodyRes = R.string.calibration_pk_edu_does_routes_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_arrow_range,
+                titleRes = R.string.calibration_pk_edu_does_band_title,
+                bodyRes = R.string.calibration_pk_edu_does_band_body,
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
     // "Not a measurement" and "not dosing advice" are the sheet's disclaimer.
-    PkCalibrationEduHeader(R.string.calibration_pk_edu_doesnt_header)
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_block,
-        titleRes = R.string.calibration_pk_edu_doesnt_verify_title,
-        bodyRes = R.string.calibration_pk_edu_doesnt_verify_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_block,
-        titleRes = R.string.calibration_pk_edu_doesnt_learn_title,
-        bodyRes = R.string.calibration_pk_edu_doesnt_learn_body,
-    )
+    HrtSection(title = stringResource(R.string.calibration_pk_edu_doesnt_header)) {
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_block,
+                titleRes = R.string.calibration_pk_edu_doesnt_verify_title,
+                bodyRes = R.string.calibration_pk_edu_doesnt_verify_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_block,
+                titleRes = R.string.calibration_pk_edu_doesnt_learn_title,
+                bodyRes = R.string.calibration_pk_edu_doesnt_learn_body,
+            )
+        }
+    }
 }
 
 @Composable
 private fun PkCalibrationCoachingPage() {
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_schedule,
-        titleRes = R.string.calibration_pk_coaching_time_title,
-        bodyRes = R.string.calibration_pk_coaching_time_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_history,
-        titleRes = R.string.calibration_pk_coaching_history_title,
-        bodyRes = R.string.calibration_pk_coaching_history_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_experiment,
-        titleRes = R.string.calibration_pk_coaching_assay_title,
-        bodyRes = R.string.calibration_pk_coaching_assay_body,
-    )
-    PkCalibrationSheetItem(
-        iconRes = R.drawable.ic_labs,
-        titleRes = R.string.calibration_pk_coaching_variety_title,
-        bodyRes = R.string.calibration_pk_coaching_variety_body,
-    )
-}
-
-@Composable
-private fun PkCalibrationEduHeader(@StringRes textRes: Int) {
-    Text(
-        text = stringResource(textRes).uppercase(),
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 18.dp),
-    )
+    HrtSection(title = null) {
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_schedule,
+                titleRes = R.string.calibration_pk_coaching_time_title,
+                bodyRes = R.string.calibration_pk_coaching_time_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_history,
+                titleRes = R.string.calibration_pk_coaching_history_title,
+                bodyRes = R.string.calibration_pk_coaching_history_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_biotech,
+                titleRes = R.string.calibration_pk_coaching_assay_title,
+                bodyRes = R.string.calibration_pk_coaching_assay_body,
+            )
+        }
+        item {
+            PkCalibrationSheetItem(
+                iconRes = R.drawable.ic_multiple_stop,
+                titleRes = R.string.calibration_pk_coaching_variety_title,
+                bodyRes = R.string.calibration_pk_coaching_variety_body,
+            )
+        }
+    }
 }
 
 /** Calibrated, provisional MEDIUM, provisional LOW with every reason, then population and numeric failure. */
@@ -422,5 +495,35 @@ private fun PkCalibrationRouteCardPreview() {
                 }
             }
         }
+    }
+}
+
+/** Home's variant (estimate title + disclaimer) over a mixed fit: both groups, every warning pill. */
+@Preview(name = "PK Routes Sheet · Home", showBackground = true, widthDp = 420, heightDp = 920)
+@Composable
+private fun PkCalibrationRoutesSheetPreview() {
+    HrtTrackerTheme(dynamicColor = false) {
+        PkCalibrationRoutesSheet(
+            uiState = previewPkProvisionalUiState,
+            onDismissRequest = {},
+            title = stringResource(R.string.main_e2_estimate_sheet_title),
+            disclaimerKinds = listOf(MedicalDisclaimerKind.PLASMA_CONCENTRATION_ESTIMATES),
+        )
+    }
+}
+
+@Preview(name = "PK Edu Sheet · what it is", showBackground = true, widthDp = 420, heightDp = 920)
+@Composable
+private fun PkCalibrationEduSheetPreview() {
+    HrtTrackerTheme(dynamicColor = false) {
+        PkCalibrationEduSheet(onDismissRequest = {})
+    }
+}
+
+@Preview(name = "PK Edu Sheet · helping it calibrate", showBackground = true, widthDp = 420, heightDp = 920)
+@Composable
+private fun PkCalibrationEduSheetCoachingPreview() {
+    HrtTrackerTheme(dynamicColor = false) {
+        PkCalibrationEduSheet(onDismissRequest = {}, initialPage = 1)
     }
 }

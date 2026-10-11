@@ -24,7 +24,7 @@ Features at a glance
 - 7-day routine visualization
 - Month-view history with personal summaries
 - Personal record logging with built-in and custom fields
-- Set you body weight for more personalized visualization
+- Set your body weight for more personalized visualization
 - Home screen widget — see your next dose and mark it taken right from your home screen
 - Medication stock tracking — keep count of what you have on hand, with low-stock reminders and a runway estimate so you can reorder before you run out
 - Daily journal — note how any day went and track meaningful dates with milestones

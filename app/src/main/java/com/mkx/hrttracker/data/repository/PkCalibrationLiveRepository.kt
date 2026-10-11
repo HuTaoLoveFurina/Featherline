@@ -8,7 +8,9 @@ import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
 import com.mkx.hrttracker.model.pk.PkCalibrationInput
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderResult
 import com.mkx.hrttracker.model.pk.PkChartDomain
+import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import java.time.Clock
+import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -45,6 +47,7 @@ class PkCalibrationLiveRepository @Inject constructor(
     private val clock: Clock,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     @AppScope appScope: CoroutineScope,
+    private val diagnosticsLogger: AppDiagnosticsLogger = AppDiagnosticsLogger(),
 ) {
     private val retryVersion = MutableStateFlow(0L)
 
@@ -67,7 +70,10 @@ class PkCalibrationLiveRepository @Inject constructor(
                 emit(PkCalibrationLiveResult(if (build != null) render(build) else evaluate()))
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+                // Surfaced as the numeric-failure row with Try again; the log
+                // is the only trace of why.
+                diagnosticsLogger.warning(TAG, "pk_calibration_live_failed", exception)
                 emit(PkCalibrationLiveResult(null))
             }
         }
@@ -88,13 +94,14 @@ class PkCalibrationLiveRepository @Inject constructor(
 
     private suspend fun render(build: HomeCalibrationBuild): PkCalibrationLive? {
         val evaluation = build.evaluation ?: return null
-        val domain = renderDomain() ?: return null
+        val nowMillis = clock.millis()
+        val domain = renderDomain(nowMillis) ?: return null
         return withContext(defaultDispatcher) {
             PkCalibrationLive(
                 input = build.input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain),
+                render = evaluation.renderFor(domain, statusRange = build.statusRange),
             )
         }
     }
@@ -111,23 +118,30 @@ class PkCalibrationLiveRepository @Inject constructor(
             metadata = metadata,
             fallbackOriginEpochMillis = clock.millis(),
         )
-        val domain = renderDomain() ?: return null
+        val nowMillis = clock.millis()
+        val domain = renderDomain(nowMillis) ?: return null
+        // The status describes Home's visible chart, as the build path does;
+        // the domain only has to cover it.
+        val statusRange = homeSnapshotRepository.visibleChartRange(
+            now = LocalDateTime.ofInstant(clock.instant(), clock.zone),
+            zoneId = clock.zone,
+        )
         return withContext(defaultDispatcher) {
             val evaluation = PkCalibrationEngine.evaluate(input)
             PkCalibrationLive(
                 input = input,
                 evaluation = evaluation,
                 domain = domain,
-                render = evaluation.renderFor(domain),
+                render = evaluation.renderFor(domain, statusRange = statusRange),
             )
         }
     }
 
-    // The render domain tracks the chart's visible window around the
+    // The render domain covers any option's visible window around the
     // current clock: the widest selectable past span (plus a day of
-    // start-of-day flooring slack) through the widest future span.
-    private fun renderDomain(): PkChartDomain? {
-        val nowMillis = clock.millis()
+    // start-of-day flooring slack) through the widest future span. The
+    // status range narrows it to the current option's window.
+    private fun renderDomain(nowMillis: Long): PkChartDomain? {
         return PkChartDomain.create(
             rangeStartEpochMillis = nowMillis - RENDER_PAST_MILLIS,
             rangeEndEpochMillis = nowMillis + RENDER_FUTURE_MILLIS,
@@ -136,6 +150,7 @@ class PkCalibrationLiveRepository @Inject constructor(
     }
 
     private companion object {
+        private const val TAG = "PkCalibrationLiveRepository"
         private const val SIX_HOURS_MILLIS = 6L * 60L * 60L * 1_000L
         private const val DAY_MILLIS = 24L * 60L * 60L * 1_000L
         private val RENDER_PAST_MILLIS =

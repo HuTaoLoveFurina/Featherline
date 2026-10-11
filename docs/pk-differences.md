@@ -196,31 +196,45 @@ multiplies that route's population contribution by `e^{beta_r}`.
 - **Evidence filter.** A result is set aside when the modeled total is
   below 5 pg/mL (`drugMinInformativePgml`), when its value is zero or
   below, or when the forward model cannot be evaluated. Results the user
-  excluded are skipped. There is no endogenous-E2 term.
-- **Objective.** A joint MAP over all active routes with a Student-t
-  (`nu = 4`) likelihood on the log residual `log y_i - log m_i`, scaled
-  by `R_LOG = 0.0225` (about 15% log-SD), plus a Gaussian prior
-  `beta_r ~ N(0, 0.30^2)`. Routes with no signal in any result keep
-  `beta_r = 0`.
+  excluded are skipped. There is no endogenous-E2 term. The fit reads
+  estradiol doses from 180 days before the earliest result; if every dose
+  is older than that, the latest one is kept, so those results read as
+  below the modeled signal rather than as having no dose logged.
+- **Objective.** A joint MAP over the supported routes (some result
+  draws at least 20% of its modeled signal from the route) with a
+  Student-t (`nu = 4`) likelihood on the log residual
+  `log y_i - log m_i`, scaled by `R_LOG = 0.0225` (about 15% log-SD),
+  plus a Gaussian prior `beta_r ~ N(0, 0.30^2)`. Every other route keeps
+  `beta_r = 0` and shows as population.
 - **Solver.** Deterministic multi-start damped Newton. Starts are
   `beta = 0`, each route's 1-D conditional minimum (grid plus
   bisection), and every pairwise combination of those. If two distinct
   minima survive, the best one is used and every route is flagged
   ambiguous.
 - **Uncertainty.** A Laplace approximation at the MAP gives each route's
-  posterior SD. The Home band is the 68% and 95% posterior predictive
-  interval for a new result (Laplace covariance plus Student-t
+  posterior SD. The Home band is the 68% and 95% prediction interval
+  for a new result (Laplace covariance plus Student-t
   observation noise, integrated with Gauss-Hermite quadrature). It is
   not a therapeutic range.
-- **Warn, don't gate.** Every route touched by an included result is
-  applied. Warnings are attached when no result draws at least 20% of
-  its signal from the route, when the scale is outside the route's usual
+- **Warn, don't gate.** Every supported route is applied. Warnings are
+  attached when the scale is outside the route's usual
   range (0.5 to 2 for injection, patch, and oral; 0.25 to 3 for gel and
   sublingual) or is a large shift backed by fewer than three results,
   when the posterior SD is above 0.20 or the supporting results span
   less than a 2x signal range, when the weighted log RMSE exceeds
   `2 * sqrt(R_LOG)`, when a supporting result has a Student-t weight
   below 0.25 and hasn't been reviewed, or when the fit is ambiguous.
+- **What "calibrated" means on screen.** The Home hero and the calibration status
+  row call the estimate calibrated when a fitted route is at least 20%
+  (`PROMOTION_SUPPORT_SHARE_MIN`) of the drawn signal at some knot of
+  Home's visible chart window; the calibration page judges over the
+  same window, so the two agree. The band is drawn only over the times
+  where that holds, so "calibrated" and a visible band go together, and
+  each band knot carries its contiguous-run tag so the chart breaks the
+  band at gaps instead of bridging them. The routes sheet marks a fitted
+  route that never reaches that share with a "Small share" pill. An old route's exponential tail stays
+  positive for months, so "any contribution" would label a curve from a
+  new, uncalibrated route as calibrated.
 - **Review.** Per-result choices (`REVIEWED`, `EXCLUDED`) live in
   `e2_calibration_metadata`, `AUTO` as no row; see [data-model.md](data-model.md).
   `REVIEWED` only hides the review tip and never changes the fit.

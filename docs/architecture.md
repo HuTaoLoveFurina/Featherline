@@ -234,7 +234,8 @@ medicine, log, and blood-test repositories.
 Feature sub-packages, one screen tree each:
 
 - [`ui/main`](https://github.com/mkx173/Featherline/tree/8e46ab59d3328a389c20e588bd1e62174dcb8b19/app/src/main/java/com/mkx/hrttracker/ui/main) — the home tab:
-  E2 hero card, 7-day/30-day PK trend chart,
+  E2 hero card (its calibration icon opens `PkCalibrationRoutesSheet`,
+  which also carries the estimate disclaimer), 7-day/30-day PK trend chart,
   today/last-night/upcoming sections, antiandrogen status cards, and
   the collapsible low-stock section (`MainLowStockSection`) that lists
   medicines in a warning state.
@@ -251,7 +252,8 @@ Feature sub-packages, one screen tree each:
   hero-background picker.
 - [`ui/calibration`](https://github.com/mkx173/Featherline/tree/8e46ab59d3328a389c20e588bd1e62174dcb8b19/app/src/main/java/com/mkx/hrttracker/ui/calibration) — blood-test panel list, panel
   editor, per-unit settings, and the estimate calibration section
-  (`PkCalibration*`: per-route cards, the results-to-check review sheet,
+  (`PkCalibration*`: per-route cards, the routes sheet they open, the
+  results-to-check review sheet,
   and the one-time "How estimate calibration works" sheet). It reads
   `PkCalibrationLiveRepository`, which re-evaluates the fit after each
   Home snapshot write; review choices are written through
@@ -459,8 +461,8 @@ The home screen has two cached layers, both observed by
   (`home_snapshot.pb`) so the home screen paints from cache on cold
   start before live Room observation catches up. The persisted record
   is `HomeSnapshotRecord`. The snapshot codec is at
-  `SNAPSHOT_CODEC_VERSION = 22` and the schema record at
-  `HOME_SNAPSHOT_SCHEMA_VERSION = 7`; both moved through the
+  `SNAPSHOT_CODEC_VERSION = 27` and the schema record at
+  `HOME_SNAPSHOT_SCHEMA_VERSION = 8`; both moved through the
   medicine-identity refactor (slots and log entries now reference a
   medicine by UUID, and the PATCH_OFF singleton round-trips), and the
   codec bumped again when the snapshot began carrying stock inputs so
@@ -475,7 +477,10 @@ The home screen has two cached layers, both observed by
   doses without re-reading Room. v19 appends `doseAmountDelta` to log
   entries so cached stock deltas survive a cold start. v20 appends
   external-import medicine payloads, v21 appends medication-log import
-  provenance, and v22 appends the cached Home hero anchor tracked date.
+  provenance, and v22 appends the cached Home hero anchor tracked date. v23 through
+  v27 carry the estimate-calibration state: the prediction-interval band
+  knots (each tagged with its contiguous run) and the hero's calibration
+  record, including the routes behind a calibrated status.
 
 The persisted snapshot also bundles a `HomePkProjectionRecord` — the
 result of the most recent
@@ -544,7 +549,10 @@ They are not release blockers.
 - Route-scale estimate calibration runs inside the Home snapshot build, which
   holds the home-data mutation lock, and is evaluated again by
   `PkCalibrationLiveRepository` after the snapshot write. With many E2
-  results the 1-D start grid in `PkJointMapSolver` is the costly part.
+  results the 1-D start grid in `PkJointMapSolver` is the costly part
+  (about 0.5 s for 20 results on five routes on a Galaxy S20 debug build
+  since the grid step went to 1e-2; the opt-in `PkCalibrationSolverTimingTest`
+  measures it).
 - The catalog/regimen/history split shipped on
   `codex/medication-identity-refactor` but a few legacy artifacts in
   `model/medication/MedicationCatalog.kt` (the `MedicationDoseAssistPreset`

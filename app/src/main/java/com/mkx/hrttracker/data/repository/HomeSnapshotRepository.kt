@@ -7,6 +7,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
 import com.mkx.hrttracker.model.pk.PkCalibrationInput
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderState
+import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
 import com.mkx.hrttracker.model.pk.PkChartDomain
 import com.mkx.hrttracker.model.pk.buildEstradiolPkDoseEvents
@@ -231,6 +232,12 @@ class HomeSnapshotRepository @Inject constructor(
             "home_data_mutation_snapshot_refresh_enqueued generation=$generation"
         )
         return checkNotNull(mutationResult).getOrThrow()
+    }
+
+    /** Home's visible chart window for the current option: the range the calibration badge describes. */
+    suspend fun visibleChartRange(now: LocalDateTime, zoneId: ZoneId): LongRange {
+        val option = settingsRepository.homeE2ChartWindowOptionFlow.first()
+        return HomePkChartWindow.forNow(now = now, zoneId = zoneId, option = option).range
     }
 
     fun isSnapshotUsable(
@@ -611,12 +618,18 @@ class HomeSnapshotRepository @Inject constructor(
         val pkExpired = existingSnapshot?.pkProjection?.let { record ->
             isPkProjectionExpired(record, now, zoneId)
         } == true
+        // The calibration badge describes the build day's visible window. A
+        // later day's chart has moved on (the snapshot stays usable for days),
+        // so rebuild; the old one stays on screen until the new one lands.
+        val calibrationWindowMoved = existingSnapshot?.pkCalibration != null &&
+            existingSnapshot.anchorDateEpochDay != now.toLocalDate().toEpochDay()
         if (
             !force &&
             existingSnapshot != null &&
             existingSnapshot.generation >= gen &&
             isSnapshotUsable(existingSnapshot, now, zoneId, option) &&
-            !pkExpired
+            !pkExpired &&
+            !calibrationWindowMoved
         ) {
             diagnosticsLogger.info(
                 TAG,
@@ -631,10 +644,11 @@ class HomeSnapshotRepository @Inject constructor(
                 ?.let { scheduleExpiryRefresh(Instant.ofEpochMilli(it.pkProjectionExpiresAtEpochMillis), now, zoneId) }
             return null
         }
-        if (pkExpired) {
+        if (pkExpired || calibrationWindowMoved) {
+            val reason = if (pkExpired) "pk_projection_expired" else "calibration_window_moved"
             diagnosticsLogger.info(
                 TAG,
-                "home_snapshot_refresh_continuing reason=pk_projection_expired " +
+                "home_snapshot_refresh_continuing reason=$reason " +
                         "${existingSnapshot.diagnosticSummary()} now=$now"
             )
         }
@@ -749,9 +763,11 @@ class HomeSnapshotRepository @Inject constructor(
             }
             HomeSnapshotBuildInputs(
                 calibrationLabs = calibrationLabs,
-                calibrationEntries = calibrationEntryEntities.map { entry ->
-                    entry.toMedicationLogEntryModel(entryMedicinesByUuid)
-                },
+                // Plus the latest dose: buildPkCalibrationInput keeps it when
+                // every dose predates the lab window.
+                calibrationEntries = (calibrationEntryEntities + listOfNotNull(latestEstradiolEntryEntity))
+                    .distinctBy { entry -> entry.uuid }
+                    .map { entry -> entry.toMedicationLogEntryModel(entryMedicinesByUuid) },
                 calibrationMetadata = calibrationMetadata,
                 activeGroups = activeGroups,
                 archivedGroups = archivedGroups,
@@ -811,12 +827,16 @@ class HomeSnapshotRepository @Inject constructor(
                 )
             }.getOrNull()
         }
+        // The badge (Home and the calibration page alike) describes the
+        // visible chart, not the cached forecast buffer past it.
+        val visibleChartRange = HomePkChartWindow.forNow(now = now, zoneId = zoneId, option = option).range
         publishCalibrationBuild(
             HomeCalibrationBuild(
                 generation = refreshGeneration,
                 generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
                 input = calibrationInput,
                 evaluation = calibration,
+                statusRange = visibleChartRange,
             )
         )
         diagnosticsLogger.info(
@@ -871,7 +891,7 @@ class HomeSnapshotRepository @Inject constructor(
         // The band follows the same projected curve as the chart: the same
         // logged (lookback-limited) plus planned doses, over the projection
         // window. The fit itself used the full dose history.
-        val homeRender = if (calibration == null || calibrationInput == null) {
+        val homeRender = if (calibration == null) {
             null
         } else {
             runCatching {
@@ -894,7 +914,11 @@ class HomeSnapshotRepository @Inject constructor(
                             .map { hours -> windowStartMillis + (hours * 3_600_000.0).roundToLong() }
                             .filter { millis -> millis in windowStartMillis..windowEndMillis },
                     )?.let { domain ->
-                        calibration.renderFor(domain, bandEvents)
+                        calibration.renderFor(
+                            domain = domain,
+                            doseEvents = bandEvents,
+                            statusRange = visibleChartRange,
+                        )
                     }
                 }
             }.onFailure { throwable ->
@@ -922,15 +946,16 @@ class HomeSnapshotRepository @Inject constructor(
                     p50Pgml = knot.p50Pgml,
                     p841344746Pgml = knot.p841344746Pgml,
                     p975Pgml = knot.p975Pgml,
+                    segment = knot.segment,
                 )
             }
             .orEmpty()
         // Hero/status summary, so Home never waits for the live evaluation.
         val calibrationRecord = calibration?.let { evaluation ->
-            // The render only narrows the supported routes to those shaping
-            // this range. When it failed (null) the curve still carries
-            // displayParams, so name the supported routes rather than call a
-            // personalized curve "population".
+            // The render narrows the supported routes to those shaping the
+            // estimate somewhere in the chart range. When it failed (null) the
+            // curve still carries displayParams, so name the supported routes
+            // rather than call a personalized curve "population".
             val effective = homeRender?.effectivePromotedRoutes
                 ?: evaluation.result.supportedPromotedRoutes
             val provisional = evaluation.result.routeResults
@@ -947,6 +972,7 @@ class HomeSnapshotRepository @Inject constructor(
                 // numeric failure, a thrown render, or an unbuildable domain.
                 bandUnavailable = effective.isNotEmpty() &&
                         homeRender?.bandState != PkCalibrationBandState.READY,
+                effectiveRoutes = effective.map(PkCalibrationRoute::stableId),
             )
         }
         // Expire at the soonest planned dose after generation time — the
@@ -1163,6 +1189,8 @@ class HomeSnapshotRepository @Inject constructor(
         val windowStartEpochMillis: Long,
         val windowEndEpochMillis: Long,
     ) {
+        val range: LongRange get() = windowStartEpochMillis..windowEndEpochMillis
+
         companion object {
             fun forNow(
                 now: LocalDateTime,
@@ -1289,6 +1317,8 @@ class HomeCalibrationBuild(
     val generatedAtEpochMillis: Long,
     val input: PkCalibrationInput,
     val evaluation: PkCalibrationEvaluation?,
+    /** Home's visible chart window at build time: the range the badge describes. */
+    val statusRange: LongRange,
 )
 
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 8

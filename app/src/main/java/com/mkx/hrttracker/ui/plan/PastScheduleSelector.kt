@@ -61,7 +61,7 @@ internal fun PastScheduleSelectorCard(
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.list_segment_gap)),
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 6.dp)
         ) {
             Text(
                 text = stringResource(R.string.group_past_plans_title).uppercase(),

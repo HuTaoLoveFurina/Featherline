@@ -1,7 +1,6 @@
 package com.mkx.hrttracker.ui.main
 
 import android.text.format.DateFormat
-import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
@@ -45,19 +44,13 @@ import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RichTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -343,10 +336,6 @@ private val MainE2ChartMinimapHorizontalInset = 5.dp
 private val MainE2ChartMinimapResetButtonSize = 32.dp
 private val PreviewManualEntryUuid = UUID.fromString("d54fbd94-9631-4c20-b79f-9e431d51a719")
 
-@StringRes
-internal fun mainE2EstimateInfoToastRes(): Int =
-    R.string.medical_disclaimer_plasma_concentration_estimates
-
 private enum class MainTodayTimeRange(
     val labelRes: Int,
     val startHour: Int,
@@ -491,6 +480,8 @@ internal fun MainE2HeroCard(
     trendReady: Boolean = true,
     hideReferenceRanges: Boolean = false,
     pkCalibration: MainPkCalibrationUiState? = null,
+    /** The title's population/lab icon opens the estimate sheet. */
+    onCalibrationClick: () -> Unit = {},
 ) {
     val showSkeleton = !trendReady
     val trendDeltaLabel = mainTrendDeltaLabel(
@@ -514,8 +505,7 @@ internal fun MainE2HeroCard(
         now = now
     )
     val hasPreviousRecord = section.lastDoseAt != null
-    // The title names the estimate's basis; a pill beside the value wrapped
-    // under the range pill whenever the value or the label ran wide.
+    // The title names the estimate's basis.
     val titleText = stringResource(
         when (pkCalibration?.adjusted) {
             true -> R.string.main_e2_title_calibrated
@@ -523,12 +513,6 @@ internal fun MainE2HeroCard(
             null -> R.string.main_e2_title
         }
     )
-    val estimateInfoTooltipText = stringResource(mainE2EstimateInfoToastRes())
-    val estimateInfoTooltipState = rememberTooltipState(isPersistent = true)
-    val estimateInfoTooltipScope = rememberCoroutineScope()
-    BackHandler(enabled = estimateInfoTooltipState.isVisible) {
-        estimateInfoTooltipState.dismiss()
-    }
     val currentValueText = formatMainE2ConcentrationValue(section.currentValue, displayUnit)
     val unitText = section.unit
     // When the trend isn't ready, we pin the pill to "in range" so the slot
@@ -589,45 +573,33 @@ internal fun MainE2HeroCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.cjkTextOffset(titleText)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        CompositionLocalProvider(
-                            LocalMinimumInteractiveComponentSize provides Dp.Unspecified
-                        ) {
-                            @OptIn(ExperimentalMaterial3Api::class)
-                            TooltipBox(
-                                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-                                    TooltipAnchorPosition.Above
-                                ),
-                                tooltip = {
-                                    RichTooltip {
-                                        Text(
-                                            text = estimateInfoTooltipText,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(vertical = 8.dp)
-                                        )
-                                    }
-                                },
-                                state = estimateInfoTooltipState,
+                        // Opens the estimate sheet: the routes behind the value
+                        // and the estimate disclaimer. Nothing is announced
+                        // before the first evaluation (null) or while the value
+                        // is still a skeleton: an un-evaluated hero is not
+                        // "population", and it would flip a moment later.
+                        if (!showSkeleton && pkCalibration != null) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            CompositionLocalProvider(
+                                LocalMinimumInteractiveComponentSize provides Dp.Unspecified
                             ) {
                                 IconButton(
-                                    onClick = {
-                                        if (estimateInfoTooltipState.isVisible) {
-                                            estimateInfoTooltipState.dismiss()
-                                        } else {
-                                            estimateInfoTooltipScope.launch {
-                                                estimateInfoTooltipState.show()
-                                            }
-                                        }
-                                    },
+                                    onClick = onCalibrationClick,
                                     modifier = Modifier.size(24.dp),
                                 ) {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_info),
-                                        contentDescription = stringResource(R.string.main_e2_estimate_info),
+                                        painter = painterResource(
+                                            if (pkCalibration.adjusted) R.drawable.ic_experiment else R.drawable.ic_group
+                                        ),
+                                        contentDescription = stringResource(
+                                            if (pkCalibration.adjusted) {
+                                                R.string.calibration_pk_hero_adjusted
+                                            } else {
+                                                R.string.calibration_pk_hero_population
+                                            }
+                                        ),
                                         tint = heroSupportingColor,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
                             }
@@ -668,47 +640,22 @@ internal fun MainE2HeroCard(
                             style = MaterialTheme.typography.titleMedium,
                             color = heroSupportingColor
                         )
-                        // A plain Row: a FlowRow here wrapped its second child under
-                        // the first even with the whole card width free, because
-                        // ConstraintLayout measures preferredWrapContent from the
-                        // flow's own wrap pass.
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.constrainAs(rangeStatusRef) {
-                                start.linkTo(unitRef.end, margin = 8.dp)
-                                end.linkTo(parent.end)
-                                top.linkTo(unitRef.top)
-                                bottom.linkTo(unitRef.bottom)
-                                width = Dimension.wrapContent
-                                horizontalBias = 0f
-                            },
-                        ) {
-                            if (!hideReferenceRanges) {
-                                SkeletonOverlay(
-                                    active = showSkeleton,
-                                    shape = CircleShape,
-                                ) {
-                                    MainE2RangeStatusPill(
-                                        iconDrawableRes = rangeStatusIconDrawableRes,
-                                        label = rangeStatusLabel,
-                                    )
-                                }
-                            }
-                            if (!showSkeleton && pkCalibration != null) {
-                                Icon(
-                                    painter = painterResource(
-                                        if (pkCalibration.adjusted) R.drawable.ic_experiment else R.drawable.ic_group
-                                    ),
-                                    contentDescription = stringResource(
-                                        if (pkCalibration.adjusted) {
-                                            R.string.calibration_pk_hero_adjusted
-                                        } else {
-                                            R.string.calibration_pk_hero_population
-                                        }
-                                    ),
-                                    tint = heroSupportingColor,
-                                    modifier = Modifier.size(16.dp),
+                        if (!hideReferenceRanges) {
+                            SkeletonOverlay(
+                                active = showSkeleton,
+                                shape = CircleShape,
+                                modifier = Modifier.constrainAs(rangeStatusRef) {
+                                    start.linkTo(unitRef.end, margin = 8.dp)
+                                    end.linkTo(parent.end)
+                                    top.linkTo(unitRef.top)
+                                    bottom.linkTo(unitRef.bottom)
+                                    width = Dimension.wrapContent
+                                    horizontalBias = 0f
+                                },
+                            ) {
+                                MainE2RangeStatusPill(
+                                    iconDrawableRes = rangeStatusIconDrawableRes,
+                                    label = rangeStatusLabel,
                                 )
                             }
                         }
@@ -1246,7 +1193,9 @@ internal fun MainE2ChartCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 10.dp)
-                .padding(bottom = 6.dp)
+                // The minimap sub-card needs 6dp more to match its side inset;
+                // a text legend under it sits on the plain card padding.
+                .padding(bottom = if (pkCalibration?.showsChartNote == true) 0.dp else 6.dp)
         ) {
 
             MainE2ChartCardHeader(
@@ -1273,8 +1222,9 @@ internal fun MainE2ChartCard(
                 val interactionMarkerColor = MaterialTheme.colorScheme.onSurfaceVariant
                 val markerSurfaceColor = MaterialTheme.colorScheme.surfaceContainer
                 val markerLabelSize = remember { mutableStateOf(IntSize.Zero) }
-                val calibrationBandOuterColor = lineColor.copy(alpha = 0.10f)
-                val calibrationBandInnerColor = lineColor.copy(alpha = 0.20f)
+                val calibrationBandColor = mainE2CalibrationBandColor()
+                val calibrationBandOuterColor = calibrationBandColor.copy(alpha = MainE2CalibrationBandOuterAlpha)
+                val calibrationBandInnerColor = calibrationBandColor.copy(alpha = MainE2CalibrationBandInnerAlpha)
                 // Shared with the line layer so the band decoration can read the
                 // in-flight intro drawing model and rise/fade with the line.
                 val lineDrawingModelKey = remember {

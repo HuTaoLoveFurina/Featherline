@@ -596,7 +596,7 @@ class HomeSnapshotRepositoryTest {
         try {
             every { PkCalibrationEngine.evaluate(any()) } returns evaluation
             every {
-                PkCalibrationRenderer.render(any(), any(), any())
+                PkCalibrationRenderer.render(any(), any(), any(), any())
             } throws IllegalStateException("render")
             repository.runHomeDataMutation { }
             awaitRebuild(testScheduler) { writtenSnapshot.isCaptured }
@@ -943,6 +943,75 @@ class HomeSnapshotRepositoryTest {
         advanceTimeBy(2L)
         runCurrent()
         // The build's DAO reads run on Dispatchers.IO, outside virtual time.
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000L) { while (builds.get() == 0) delay(10L) }
+        }
+        assertEquals(1, builds.get())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun usableSnapshotFromAnEarlierDay_rebuildsOnlyWhenItCarriesACalibrationBadge() = runTest {
+        // The badge is judged over the build day's visible window; the chart
+        // moves on each day while the snapshot stays usable, so a calibrated
+        // one is rebuilt rather than kept.
+        val builds = stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L, 0L))
+        val zoneId = ZoneId.systemDefault()
+        val now = LocalDateTime.of(2026, 5, 7, 7, 0)
+        val anchorDate = now.toLocalDate().minusDays(1)
+        val windowEnd = anchorDate.plusDays(14).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val yesterdays = HomeSnapshotRecord(
+            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
+            generation = 0L,
+            generatedAtEpochMillis = anchorDate.atTime(10, 0).atZone(zoneId).toInstant().toEpochMilli(),
+            anchorDateEpochDay = anchorDate.toEpochDay(),
+            zoneId = zoneId.id,
+            pkProjection = HomePkProjectionRecord(
+                generatedAtEpochMillis = anchorDate.atTime(10, 0).atZone(zoneId).toInstant().toEpochMilli(),
+                windowStartEpochMillis = anchorDate.minusDays(3)
+                    .atStartOfDay(zoneId).toInstant().toEpochMilli(),
+                windowEndEpochMillis = windowEnd,
+                pkProjectionExpiresAtEpochMillis = windowEnd,
+                concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
+                timeH = emptyList(),
+                concentrations = emptyList(),
+                doseMarkers = emptyList(),
+                latestEstradiolEntry = null,
+                chartWindowHours = 168,
+                densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
+                includesPostDoseOffsets = false,
+            ),
+            activeGroups = emptyList(),
+            scheduleEntries = emptyList(),
+            antiandrogenHistoryEntries = emptyList(),
+        )
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()),
+            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
+            diagnosticsLogger = diagnosticsLogger,
+        )
+        assertTrue(repository.isSnapshotUsable(yesterdays, now, zoneId, HomeE2ChartWindowOption.SEVEN_DAYS))
+
+        coEvery { homeSnapshotStore.readSnapshot() } returns yesterdays
+        repository.refreshHomeSnapshotIfNeeded(now = now, force = false, zoneId = zoneId)
+        runCurrent()
+        assertEquals(0, builds.get())
+
+        coEvery { homeSnapshotStore.readSnapshot() } returns yesterdays.copy(
+            pkCalibration = HomePkCalibrationRecord(
+                adjusted = true,
+                limitedConfidence = false,
+                renderUnavailable = false,
+                bandUnavailable = false,
+                effectiveRoutes = listOf("oral"),
+            ),
+        )
+        repository.refreshHomeSnapshotIfNeeded(now = now, force = false, zoneId = zoneId)
+        runCurrent()
         withContext(Dispatchers.Default) {
             withTimeout(5_000L) { while (builds.get() == 0) delay(10L) }
         }

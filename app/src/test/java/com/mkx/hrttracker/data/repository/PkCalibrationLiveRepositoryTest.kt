@@ -125,6 +125,7 @@ class PkCalibrationLiveRepositoryTest {
             generatedAtEpochMillis = FixedNowMillis,
             input = selfSolved.input,
             evaluation = evaluation,
+            statusRange = StatusRange,
         )
         runCurrent()
         // The published solve is reused as-is; no second read or solve.
@@ -137,6 +138,7 @@ class PkCalibrationLiveRepositoryTest {
             generatedAtEpochMillis = FixedNowMillis + 1L,
             input = selfSolved.input,
             evaluation = null,
+            statusRange = StatusRange,
         )
         runCurrent()
         assertNull(requireNotNull(repository.liveState.value).live)
@@ -174,6 +176,7 @@ class PkCalibrationLiveRepositoryTest {
             generatedAtEpochMillis = FixedNowMillis,
             input = input,
             evaluation = PkCalibrationEngine.evaluate(input),
+            statusRange = StatusRange,
         )
         runCurrent()
 
@@ -190,6 +193,7 @@ class PkCalibrationLiveRepositoryTest {
         defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     ): PkCalibrationLiveRepository {
         every { homeSnapshots.calibrationBuilds } returns builds
+        coEvery { homeSnapshots.visibleChartRange(any(), any()) } returns StatusRange
         return PkCalibrationLiveRepository(
             bloodTestRepository = bloodTests,
             medicationLogRepository = medicationLogs,
@@ -239,5 +243,6 @@ class PkCalibrationLiveRepositoryTest {
 
     private companion object {
         const val FixedNowMillis = 1_700_000_000_000L
+        val StatusRange = FixedNowMillis - 3 * 86_400_000L..FixedNowMillis + 4 * 86_400_000L
     }
 }

@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -95,6 +97,7 @@ import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.components.paddingBehindTopAppBar
 import com.mkx.hrttracker.ui.components.pinnedTopAppBarScrollBehavior
 import com.mkx.hrttracker.ui.components.topAppBarScrollToTop
+import com.mkx.hrttracker.ui.hideBottomSheet
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 import com.mkx.hrttracker.util.CalibrationPanelDateTimeFormatters
 import com.mkx.hrttracker.util.CalibrationPanelDateTimeLabels
@@ -440,11 +443,16 @@ private fun CalibrationScreenContent(
                 pkSheet = null
                 pkReviewQueue = emptyList()
             }
-            // Hide before navigating: a sheet left open lingers over the editor.
+            val reviewSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            val reviewSheetScope = rememberCoroutineScope()
+            // Animate the sheet off, then navigate: a sheet left open lingers
+            // over the editor, and dropping it outright makes it blink off.
             val openPanelFromReview = { panelId: UUID ->
-                pkSheet = null
-                pkReopenReview = true
-                onPanelClick(panelId)
+                hideBottomSheet(reviewSheetScope, reviewSheetState) {
+                    pkSheet = null
+                    pkReopenReview = true
+                    onPanelClick(panelId)
+                }
             }
             val reviewRows = remember(pkReviewQueue, uiState.panels) {
                 val panelsById = uiState.panels.associateBy { panel -> panel.uuid.toString() }
@@ -456,6 +464,7 @@ private fun CalibrationScreenContent(
                 PkCalibrationReviewSheet(
                     count = reviewRows.size,
                     onDismissRequest = closeReview,
+                    sheetState = reviewSheetState,
                 ) {
                     reviewRows.forEachIndexed { index, panel ->
                         CalibrationPanelRow(
@@ -469,7 +478,7 @@ private fun CalibrationScreenContent(
                             pkFooter = {
                                 PkCalibrationReviewSummary(
                                     flag = pkLabFlags[panel.uuid],
-                                    modifier = Modifier.padding(top = 12.dp),
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
                                 )
                             },
                         )
@@ -761,6 +770,12 @@ internal fun CalibrationPanelRow(
                 CalibrationPanelResultAdditionalSummaryRow(
                     resultSummary = resultSummary,
                     hideReferenceRanges = settingsState.hideReferenceRanges,
+                    // One tonal step above the row: page rows are Low, sheet rows Container.
+                    containerColor = if (containerColor == MaterialTheme.colorScheme.surfaceContainerLow) {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
                     modifier = Modifier.constrainAs(additionalSummary) {
                         start.linkTo(summaryColumn.start)
                         end.linkTo(parent.end)
@@ -882,11 +897,12 @@ private fun CalibrationPanelResultSummaryRow(
 private fun CalibrationPanelResultAdditionalSummaryRow(
     resultSummary: CalibrationPanelResultSummary,
     hideReferenceRanges: Boolean,
+    containerColor: Color,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = containerColor,
         modifier = modifier.padding(vertical = 6.dp)
     ) {
         Row(
