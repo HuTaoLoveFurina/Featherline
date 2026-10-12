@@ -11,10 +11,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -120,7 +121,9 @@ fun BoxScope.TopUpdatingIndicator(
     isUpdating: Boolean,
     innerPadding: PaddingValues,
 ) {
-    val state = rememberPullToRefreshState()
+    // Not saveable: a screen restored mid-slide would resume it, and the
+    // indicator would come back up after the update it shows has ended.
+    val state = remember { PullToRefreshState() }
     LaunchedEffect(isUpdating) {
         if (isUpdating) state.animateToThreshold() else state.animateToHidden()
     }
