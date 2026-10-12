@@ -67,7 +67,7 @@ This is listed here as a source attribution for the PK reference material.
 
 ### Roboto (modified metrics)
 
-The app bundles Roboto Regular, Medium and Bold
+The app bundles Roboto Regular, Medium, SemiBold and Bold
 (`app/src/main/res/font/roboto_featherline_*.ttf`), instanced from the official
 Roboto variable font (version 3.015) with the `hhea`/`OS/2` vertical metrics
 raised to 1.50/0.76 em and the family renamed "Roboto Featherline". The taller

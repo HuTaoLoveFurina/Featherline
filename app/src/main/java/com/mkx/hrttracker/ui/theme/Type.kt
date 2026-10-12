@@ -22,6 +22,7 @@ import com.mkx.hrttracker.R
 private val RobotoFeatherline = FontFamily(
     Font(R.font.roboto_featherline_regular, FontWeight.Normal),
     Font(R.font.roboto_featherline_medium, FontWeight.Medium),
+    Font(R.font.roboto_featherline_semibold, FontWeight.SemiBold),
     Font(R.font.roboto_featherline_bold, FontWeight.Bold),
 )
 
