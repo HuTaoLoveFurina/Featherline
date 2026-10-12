@@ -1032,12 +1032,12 @@
     <string name="anchor_shortcut_disabled_message">呢個日期已經刪除</string>
 
     <!-- Route-isolated E2 calibration (PK) — global prerequisite states -->
-    <string name="calibration_pk_global_no_dose_history_title">請先記錄用藥</string>
-    <string name="calibration_pk_global_no_dose_history_body">校準需要用藥記錄。記錄雌二醇用藥之前，會顯示人群估算</string>
-    <string name="calibration_pk_global_no_usable_labs_title">新增雌二醇檢查結果</string>
-    <string name="calibration_pk_global_no_usable_labs_body">新增雌二醇檢查結果之後就會開始校準，喺嗰之前顯示人群估算</string>
+    <string name="calibration_pk_global_no_dose_history_title">請新增用藥記錄</string>
+    <string name="calibration_pk_global_no_dose_history_body">新增雌二醇用藥記錄之前會顯示人群估算</string>
+    <string name="calibration_pk_global_no_usable_labs_title">請新增檢查結果</string>
+    <string name="calibration_pk_global_no_usable_labs_body">新增雌二醇檢查結果之前會顯示人群估算</string>
     <string name="calibration_pk_global_numeric_failure_title">未能更新估算</string>
-    <string name="calibration_pk_global_numeric_failure_body">計算未完成，暫時顯示人群估算</string>
+    <string name="calibration_pk_global_numeric_failure_body">計算未完成，會顯示人群估算</string>
 
     <!-- Route-isolated E2 calibration (PK) — per-route display states -->
     <string name="calibration_pk_route_tag_no_supporting_labs">暫時冇可用結果</string>
