@@ -746,16 +746,7 @@ internal class PkForwardEventModel(
 
         PkRoute.SUBLINGUAL -> { timeH ->
             val tau = timeH - startTime
-            when {
-                tau < 0.0 -> 0.0
-                params.k2 > 0.0 -> ThreeCompartmentModel.dualAbsorptionMixedAmount(
-                    tau,
-                    dose,
-                    params
-                )
-
-                else -> ThreeCompartmentModel.dualAbsorptionAmount(tau, dose, params)
-            }
+            if (tau < 0.0) 0.0 else ThreeCompartmentModel.dualAbsorptionAmount(tau, dose, params)
         }
 
         PkRoute.PATCH_APPLY -> {
@@ -867,11 +858,7 @@ private object PkParameterResolver {
                     fracFast = 1.0,
                     k1Fast = PkCatalog.oralKAbs(event.compound) ?: 0.0,
                     k1Slow = 0.0,
-                    k2 = if (event.hormone == PkHormone.ESTRADIOL && event.compound == PkCompound.EV) {
-                        PkCatalog.hydrolysisK2(PkCompound.EV) ?: 0.0
-                    } else {
-                        0.0
-                    },
+                    k2 = 0.0,
                     k3 = k3,
                     bioavailability = bioavailability,
                     rateMgH = 0.0,
@@ -890,11 +877,7 @@ private object PkParameterResolver {
                         fracFast = theta,
                         k1Fast = PkCatalog.kAbsSublingual,
                         k1Slow = PkCatalog.oralKAbs(event.compound) ?: 0.0,
-                        k2 = if (event.compound == PkCompound.EV) {
-                            PkCatalog.hydrolysisK2(PkCompound.EV) ?: 0.0
-                        } else {
-                            0.0
-                        },
+                        k2 = 0.0,
                         k3 = k3,
                         bioavailability = 1.0,
                         rateMgH = 0.0,
@@ -929,27 +912,6 @@ object ThreeCompartmentModel {
             k1 = p.k1Slow,
             k2 = p.k2,
             k3 = p.k3,
-        )
-    }
-
-    fun dualAbsorptionMixedAmount(tau: Double, doseMg: Double, p: PkParams): Double {
-        if (tau < 0.0 || doseMg <= 0.0) {
-            return 0.0
-        }
-        val fraction = p.fracFast.coerceIn(0.0, 1.0)
-        return analyticThreeCompartmentAmount(
-            tau = tau,
-            doseMg = doseMg * fraction,
-            bioavailability = p.fastBioavailability,
-            k1 = p.k1Fast,
-            k2 = p.k2,
-            k3 = p.k3,
-        ) + batemanAmount(
-            doseMg = doseMg * (1.0 - fraction),
-            bioavailability = p.slowBioavailability,
-            ka = p.k1Slow,
-            ke = p.k3,
-            t = tau,
         )
     }
 
@@ -1378,15 +1340,17 @@ object PkCatalog {
 
     // E2: a slow flip-flop ka stands in for the estrone-sulfate reservoir, and F is pinned to
     // the label's 2 mg/day steady state (Cmax 89, Cmin 35, Cavg 62.9 pg/mL at 70 kg).
+    // EV is cleaved during absorption and tracks E2 at equal E2 content (Wiegratz 2001), so it
+    // shares E2's values, sublingual included.
     private val oralKAbs = mapOf(
         PkCompound.E2 to 0.06,
-        PkCompound.EV to 0.05,
+        PkCompound.EV to 0.06,
         PkCompound.TU to 0.04,
     )
 
     private val oralBioavailability = mapOf(
         PkCompound.E2 to 0.043,
-        PkCompound.EV to 0.03,
+        PkCompound.EV to 0.043,
         PkCompound.TU to 0.03,
     )
 

@@ -80,7 +80,13 @@ class PkSimulationTest {
 
     @Test
     fun oralAndSublingualEstradiol_matchLiteratureAnchors() {
-        fun simulate(route: PkRoute, doseMg: Double, days: Int, sampleTimeH: List<Double>) =
+        fun simulate(
+            route: PkRoute,
+            doseMg: Double,
+            days: Int,
+            sampleTimeH: List<Double>,
+            compound: PkCompound = PkCompound.E2,
+        ) =
             PkSimulationEngine(
                 events = (0 until days).map { day ->
                     PkDoseEvent(
@@ -90,7 +96,7 @@ class PkSimulationTest {
                         route = route,
                         timeH = day * 24.0,
                         doseMg = doseMg,
-                        compound = PkCompound.E2,
+                        compound = compound,
                     )
                 },
                 hormone = PkHormone.ESTRADIOL,
@@ -108,6 +114,15 @@ class PkSimulationTest {
         // Doll 2022: 1 mg sublingual peaks near 144 pg/mL at 1-2 h.
         val sublingual = simulate(PkRoute.SUBLINGUAL, 1.0, days = 1, listOf(0.0, 1.2))
         assertTrue(requireNotNull(sublingual.concentrationAt(1.2)) in 110.0..200.0)
+
+        // EV tracks E2 at equal E2 content on both routes.
+        for (route in listOf(PkRoute.ORAL, PkRoute.SUBLINGUAL)) {
+            val times = listOf(1.0, 6.0, 30.0)
+            assertEquals(
+                simulate(route, 1.0, days = 2, times).concentrations,
+                simulate(route, 1.0, days = 2, times, PkCompound.EV).concentrations,
+            )
+        }
     }
 
     @Test
