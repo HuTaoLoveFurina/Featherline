@@ -644,12 +644,12 @@ private fun PkCalibrationLabNote(
         bodyStyle.lineHeight.takeOrElse { bodyStyle.fontSize }.toDp()
     }
     Column(
-        modifier = modifier.padding(start = 12.dp, top = 12.dp, end = 4.dp, bottom = 4.dp),
+        modifier = modifier.padding(start = 12.dp, top = 12.dp, end = 4.dp, bottom = 2.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.height(firstLineHeight), contentAlignment = Alignment.Center) {
                 Icon(
