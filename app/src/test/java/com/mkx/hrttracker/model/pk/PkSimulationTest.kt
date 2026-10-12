@@ -111,9 +111,12 @@ class PkSimulationTest {
         assertTrue(requireNotNull(oral.concentrationAt(9 * 24.0 + 5.0)) in 75.0..105.0)
         assertTrue(requireNotNull(oral.concentrationAt(10 * 24.0)) in 25.0..45.0)
 
-        // Doll 2022: 1 mg sublingual peaks near 144 pg/mL at 1-2 h.
-        val sublingual = simulate(PkRoute.SUBLINGUAL, 1.0, days = 1, listOf(0.0, 1.2))
-        assertTrue(requireNotNull(sublingual.concentrationAt(1.2)) in 110.0..200.0)
+        // 1 mg sublingual at 1 h: 120 above baseline in Doll 2022, 441 in Price 1997. Both fall
+        // to ~0.15x of that by 4 h.
+        val sublingual = simulate(PkRoute.SUBLINGUAL, 1.0, days = 1, listOf(1.0, 4.0))
+        val oneHour = requireNotNull(sublingual.concentrationAt(1.0))
+        assertTrue(oneHour in 120.0..450.0)
+        assertTrue(requireNotNull(sublingual.concentrationAt(4.0)) / oneHour in 0.1..0.25)
 
         // EV tracks E2 at equal E2 content on both routes.
         for (route in listOf(PkRoute.ORAL, PkRoute.SUBLINGUAL)) {

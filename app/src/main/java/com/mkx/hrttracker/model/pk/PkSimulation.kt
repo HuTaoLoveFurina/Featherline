@@ -746,7 +746,12 @@ internal class PkForwardEventModel(
 
         PkRoute.SUBLINGUAL -> { timeH ->
             val tau = timeH - startTime
-            if (tau < 0.0) 0.0 else ThreeCompartmentModel.dualAbsorptionAmount(tau, dose, params)
+            if (tau < 0.0) 0.0 else ThreeCompartmentModel.dualAbsorptionAmount(
+                tau,
+                dose,
+                params,
+                fastKe = PkCatalog.kElimSublingual,
+            )
         }
 
         PkRoute.PATCH_APPLY -> {
@@ -915,7 +920,7 @@ object ThreeCompartmentModel {
         )
     }
 
-    fun dualAbsorptionAmount(tau: Double, doseMg: Double, p: PkParams): Double {
+    fun dualAbsorptionAmount(tau: Double, doseMg: Double, p: PkParams, fastKe: Double): Double {
         if (tau < 0.0 || doseMg <= 0.0) {
             return 0.0
         }
@@ -924,7 +929,7 @@ object ThreeCompartmentModel {
             doseMg = doseMg * fraction,
             bioavailability = p.fastBioavailability,
             ka = p.k1Fast,
-            ke = p.k3,
+            ke = fastKe,
             t = tau,
         ) + batemanAmount(
             doseMg = doseMg * (1.0 - fraction),
@@ -1262,9 +1267,12 @@ data class TwoPartDepotParams(
 )
 
 object PkCatalog {
-    // Upstream's 0.11 put a 1 mg peak near 550 pg/mL; 0.03 lands near Doll 2022's ~144.
-    const val standardSublingualTheta: Double = 0.03
+    const val standardSublingualTheta: Double = 0.11
     const val kAbsSublingual: Double = 1.8
+    // The mouth-absorbed part falls from its peak far faster than E2's own clearance allows
+    // (2 h value ~0.36x the 1 h value in Doll 2022, 4 h ~0.17x in Price 1997), likely by
+    // conversion to estrone; fitted jointly with upstream's theta and kAbsSublingual.
+    const val kElimSublingual: Double = 1.2
 
     private val coreParams = mapOf(
         PkHormone.ESTRADIOL to HormoneCoreParams(

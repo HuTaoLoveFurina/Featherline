@@ -176,10 +176,10 @@ should read the upstream README and its `pk_research/` workspace.
   nothing in the UI ever sets it. The
   [`PkParameterResolver.SUBLINGUAL`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L820)
   branch always falls back to the catalog default
-  [`PkCatalog.standardSublingualTheta = 0.03`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L1204).
+  [`PkCatalog.standardSublingualTheta = 0.11`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L1204).
   Real per-person variation in mucosal-vs-swallowed fraction can be
   substantial; Featherline does not currently expose it for tuning.
-- **Oral and sublingual estradiol are refit to blood levels.** Upstream's
+- **Oral estradiol is refit to blood levels.** Upstream's
   oral E2 values (`oralKAbs = 0.32`, `oralBioavailability = 0.03`)
   give a terminal half-life of about 2 h. Oral E2's is 13–20 h, because
   estrone sulfate keeps converting back to E2. With upstream's values,
@@ -191,15 +191,21 @@ should read the upstream README and its `pk_research/` workspace.
   for the estrone-sulfate reservoir. At 70 kg, 2 mg once daily reaches
   a steady state of 89 / 33 / 62.9 pg/mL (peak / trough / average). The
   label's figures are 89 / 35 / 62.9. A single 1 mg dose peaks at
-  33 pg/mL at 5.5 h; Doll 2022 measured about 35. Upstream's θ = 0.11
-  comes from a dissolve-or-swallow model, not from blood levels. It put
-  the 1 mg sublingual peak near 550 pg/mL. Featherline uses θ = 0.03,
-  which gives 154 pg/mL at 1.2 h; Doll 2022 measured about 144 at
-  1–2 h. Total exposure is 1.7× oral (Price 1997 measured about 2.5×).
-  The swallowed part goes through the refit oral path. Over 0–8 h the
-  model gives 3.3× the oral exposure, against 1.8× measured by Doll
-  2022. Doll's full time course would show which part of the curve is
-  off.
+  33 pg/mL at 5.5 h; Doll 2022 measured about 35. The swallowed part
+  of a sublingual dose goes through this refit oral path.
+- **The mouth-absorbed part of a sublingual dose clears faster than
+  E2's own rate.** Upstream sends it through E2's clearance (0.41/h), so
+  a 1 mg dose stayed near its peak for hours. In Doll 2022 and Price
+  1997, levels fall from their 1 h value to about 0.36× by 2 h and
+  0.15× by 4 h, likely through conversion to estrone. Featherline adds
+  `kElimSublingual = 1.2` for that part and keeps upstream's θ and
+  absorption rate. Fitted to both studies with the refit oral path, a
+  1 mg dose at 70 kg peaks at 359 pg/mL at 0.7 h. It is 170 at 2 h, 45
+  at 4 h and 27 at 8 h. Doll measured 120 above baseline at 1 h (LC-MS/MS,
+  trans women); Price measured 441 (RIA, postmenopausal women).
+  Total exposure over 24 h is 2.1× oral; Price measured 2.6×. Doll's
+  reported 1.8× over 0–8 h includes baseline E2. Above baseline it is
+  about 4.5×.
 - **Estradiol valerate (EV) is modeled as E2 when swallowed or held
   under the tongue.** Doses are already converted to E2 content, and EV
   now uses E2's oral values and θ. Upstream used `oralKAbs[EV] = 0.05`
@@ -207,10 +213,13 @@ should read the upstream README and its `pk_research/` workspace.
   through the injection hydrolysis rate (`hydrolysisK2[EV] = 0.07`).
   In Wiegratz 2001, 2 mg of EV gave about 60 pg/mL at day 21, against
   80 for 2 mg of micronized E2. That is about the ratio of their E2
-  content (0.76). The two products carried different progestins. No
-  study has measured sublingual EV levels over time. TFS's
-  [review](https://transfemscience.org/articles/sublingual-ev/) expects
-  it to work like sublingual E2 at equal E2 content.
+  content (0.76). The two products carried different progestins.
+  Timmer 1999 found single doses of 1.5 mg E2 and 2 mg EV
+  bioequivalent. No study has measured sublingual EV levels over time.
+  TFS's [review](https://transfemscience.org/articles/sublingual-ev/)
+  expects it to work like sublingual E2 at equal E2 content. In
+  Düsterberg 1985, EV given into a vein was fully split into E2 within
+  30 minutes.
 
 ## Route-scale estimate calibration
 
