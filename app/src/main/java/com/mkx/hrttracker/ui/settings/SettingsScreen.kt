@@ -524,6 +524,7 @@ fun SettingsScreen(
         widgetAppearance = widgetAppearance,
         hasNotificationAccess = hasNotificationAccess,
         reminderSupportState = reminderSupportState,
+        isReminderEnablePending = isReminderEnablePending,
         onWeightSave = viewModel::setWeight,
         onWeightClear = viewModel::clearWeight,
         onRemindersEnabledChange = onRemindersEnabledChange,
@@ -945,6 +946,7 @@ internal fun SettingsScreenContent(
     widgetAppearance: WidgetAppearance,
     hasNotificationAccess: Boolean,
     reminderSupportState: SettingsReminderSupportState,
+    isReminderEnablePending: Boolean = false,
     onWeightSave: (Double, WeightUnit) -> Unit,
     onWeightClear: () -> Unit,
     onRemindersEnabledChange: (Boolean) -> Unit,
@@ -1143,7 +1145,12 @@ internal fun SettingsScreenContent(
                             },
                             trailingContent = {
                                 Switch(
-                                    checked = settingsState.remindersEnabled && hasNotificationAccess,
+                                    // Track the pending enable too: after a permission grant the
+                                    // capability state flips in memory at once while the setting
+                                    // write goes through DataStore, so without this the switch
+                                    // shows enabled-but-off for a few frames before turning on.
+                                    checked = (settingsState.remindersEnabled || isReminderEnablePending) &&
+                                            hasNotificationAccess,
                                     onCheckedChange = onRemindersEnabledChange,
                                     enabled = hasNotificationAccess
                                 )

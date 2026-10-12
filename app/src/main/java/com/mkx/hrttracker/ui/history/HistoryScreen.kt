@@ -53,7 +53,6 @@ import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -85,7 +84,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kizitonwose.calendar.compose.CalendarLayoutInfo
 import com.kizitonwose.calendar.compose.CalendarState
 import com.kizitonwose.calendar.compose.HorizontalCalendar
@@ -239,10 +240,13 @@ fun HistoryScreen(
         active = uiState.isDeletingSelectedEntries || uiState.isDeletingAllEntries,
     )
 
-    DisposableEffect(viewModel) {
-        onDispose {
-            viewModel.resetCalendarViewport()
-        }
+    // Reset the calendar only when this back-stack entry is popped. A bottom-tab
+    // switch saves the entry (saveState/restoreState), which disposes the
+    // composable but keeps the entry's ViewModelStore, so a dispose-time reset
+    // would also wipe the selection the user comes back to. An entry-scoped
+    // ViewModel is cleared on pop and kept on save, which is exactly the split.
+    viewModel<HistoryEntryScope> {
+        HistoryEntryScope(onPopped = viewModel::resetCalendarViewport)
     }
 
     HistoryScreenContent(
@@ -2701,3 +2705,7 @@ private val CalendarLayoutInfo.completelyVisibleMonths: List<CalendarMonth>
             visibleItemsInfo.map { it.month }
         }
     }
+
+private class HistoryEntryScope(private val onPopped: () -> Unit) : ViewModel() {
+    override fun onCleared() = onPopped()
+}
