@@ -1300,7 +1300,8 @@ data class TwoPartDepotParams(
 )
 
 object PkCatalog {
-    const val standardSublingualTheta: Double = 0.11
+    // Upstream's 0.11 put a 1 mg peak near 550 pg/mL; 0.03 lands near Doll 2022's ~144.
+    const val standardSublingualTheta: Double = 0.03
     const val kAbsSublingual: Double = 1.8
 
     private val coreParams = mapOf(
@@ -1375,14 +1376,16 @@ object PkCatalog {
         PkCompound.TU to 0.03,
     )
 
+    // E2: a slow flip-flop ka stands in for the estrone-sulfate reservoir, and F is pinned to
+    // the label's 2 mg/day steady state (Cmax 89, Cmin 35, Cavg 62.9 pg/mL at 70 kg).
     private val oralKAbs = mapOf(
-        PkCompound.E2 to 0.32,
+        PkCompound.E2 to 0.06,
         PkCompound.EV to 0.05,
         PkCompound.TU to 0.04,
     )
 
     private val oralBioavailability = mapOf(
-        PkCompound.E2 to 0.03,
+        PkCompound.E2 to 0.043,
         PkCompound.EV to 0.03,
         PkCompound.TU to 0.03,
     )

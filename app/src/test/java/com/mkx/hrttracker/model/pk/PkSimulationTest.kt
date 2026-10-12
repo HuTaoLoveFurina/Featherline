@@ -79,6 +79,38 @@ class PkSimulationTest {
     }
 
     @Test
+    fun oralAndSublingualEstradiol_matchLiteratureAnchors() {
+        fun simulate(route: PkRoute, doseMg: Double, days: Int, sampleTimeH: List<Double>) =
+            PkSimulationEngine(
+                events = (0 until days).map { day ->
+                    PkDoseEvent(
+                        id = UUID.randomUUID(),
+                        sourceGroupUuid = null,
+                        hormone = PkHormone.ESTRADIOL,
+                        route = route,
+                        timeH = day * 24.0,
+                        doseMg = doseMg,
+                        compound = PkCompound.E2,
+                    )
+                },
+                hormone = PkHormone.ESTRADIOL,
+                bodyWeightKg = 70.0,
+                startTimeH = 0.0,
+                endTimeH = days * 24.0,
+                numberOfSteps = 2,
+            ).run(sampleTimeH = sampleTimeH)
+
+        // Label steady state for 2 mg/day: Cmax 89, Cmin 35 pg/mL.
+        val oral = simulate(PkRoute.ORAL, 2.0, days = 10, listOf(9 * 24.0 + 5.0, 10 * 24.0))
+        assertTrue(requireNotNull(oral.concentrationAt(9 * 24.0 + 5.0)) in 75.0..105.0)
+        assertTrue(requireNotNull(oral.concentrationAt(10 * 24.0)) in 25.0..45.0)
+
+        // Doll 2022: 1 mg sublingual peaks near 144 pg/mL at 1-2 h.
+        val sublingual = simulate(PkRoute.SUBLINGUAL, 1.0, days = 1, listOf(0.0, 1.2))
+        assertTrue(requireNotNull(sublingual.concentrationAt(1.2)) in 110.0..200.0)
+    }
+
+    @Test
     fun oneCompartmentAmount_matchesBatemanEquation() {
         val params = PkParams(
             fracFast = 1.0,

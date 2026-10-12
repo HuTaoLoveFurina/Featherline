@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Oral and sublingual estradiol estimates now follow published blood levels. Oral estradiol no longer drops to almost zero before the next dose, so results drawn just before a dose now count toward calibration. A 1 mg sublingual dose now peaks near 150 pg/mL instead of about 550 pg/mL. Existing calibrations are refit automatically.
 - Estimate calibration solves about ten times faster. On a Galaxy S20, a five-route history with 20 results took about 5 seconds per Home refresh and now takes about half a second.
 - The shaded band on the Home chart is now called a prediction interval and is drawn lighter, and its legend matches the chart.
 - Calibration text is shorter and clearer in every language.

@@ -310,7 +310,7 @@ class PkCalibrationRendererTest {
     @Test
     fun aggregateBandFailure_preservesPersonalizedCentralAndFit() {
         val evaluation = evaluation(
-            events = listOf(event(PkRoute.ORAL, 0.0, 1.45e306)),
+            events = listOf(event(PkRoute.ORAL, 0.0, 2.94e306)),
             promotedQByRoute = mapOf(PkCalibrationRoute.ORAL to ln(1.1)),
         )
         val actual = render(evaluation, domain(startHours = 1, hours = 12, intervalHours = 3))

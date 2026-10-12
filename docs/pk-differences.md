@@ -35,13 +35,14 @@ should read the upstream README and its `pk_research/` workspace.
   upstream catalog for the routes it supports.
 - **Population-average parameter values.** Clearance constants
   (`kClear`, `kClearInjection`), volume-of-distribution (`vdPerKg =
-  2.0` for both hormones), gel/patch absorption rates, the standard
-  sublingual θ, and the per-compound `k1Fast` / `k1Slow` / `k2` /
-  formation fractions are taken from upstream's anchored parameters.
-  The one exception is **estradiol undecylate (EU)**, whose depot
-  parameters come from
+  2.0` for both hormones), gel/patch absorption rates, and the
+  per-compound `k1Fast` / `k1Slow` / `k2` / formation fractions are
+  taken from upstream's anchored parameters. There are two exceptions.
+  **Estradiol undecylate (EU)** takes its depot parameters from
   [`Transmtf-HRT-Tracker`](https://github.com/TransmtfTeam/Transmtf-HRT-Tracker)
-  (the "im-depot-v1" model) — the LaoZhong upstream has no EU model.
+  (the "im-depot-v1" model), because the LaoZhong upstream has no EU
+  model. **Oral and sublingual estradiol** use Featherline's own
+  values, described below.
 
 ## What Featherline changes
 
@@ -175,9 +176,28 @@ should read the upstream README and its `pk_research/` workspace.
   nothing in the UI ever sets it. The
   [`PkParameterResolver.SUBLINGUAL`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L820)
   branch always falls back to the catalog default
-  [`PkCatalog.standardSublingualTheta = 0.11`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L1204).
+  [`PkCatalog.standardSublingualTheta = 0.03`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L1204).
   Real per-person variation in mucosal-vs-swallowed fraction can be
   substantial; Featherline does not currently expose it for tuning.
+- **Oral and sublingual estradiol are refit to blood levels.** Upstream's
+  oral E2 values (`oralKAbs = 0.32`, `oralBioavailability = 0.03`)
+  give a terminal half-life of about 2 h. Oral E2's is 13–20 h, because
+  estrone sulfate keeps converting back to E2. With upstream's values,
+  2 mg once daily falls to under 1 pg/mL by the next dose. Those
+  near-zero troughs fall under the calibration floor, so trough results
+  were set aside. Upstream's 2026 source audit did not cover estradiol.
+  Featherline uses `oralKAbs[E2] = 0.06` and
+  `oralBioavailability[E2] = 0.043`; the slow absorption rate stands in
+  for the estrone-sulfate reservoir. At 70 kg, 2 mg once daily reaches
+  a steady state of 89 / 33 / 62.9 pg/mL (peak / trough / average). The
+  label's figures are 89 / 35 / 62.9. A single 1 mg dose peaks at
+  33 pg/mL at 5.5 h; Doll 2022 measured about 35. Upstream's θ = 0.11
+  comes from a dissolve-or-swallow model, not from blood levels. It put
+  the 1 mg sublingual peak near 550 pg/mL. Featherline uses θ = 0.03,
+  which gives 154 pg/mL at 1.2 h; Doll 2022 measured about 144 at
+  1–2 h. Total exposure is 1.7× oral (Price 1997 measured about 2.5×).
+  The swallowed part now goes through the refit oral path. Oral
+  estradiol valerate keeps upstream's values.
 
 ## Route-scale estimate calibration
 
