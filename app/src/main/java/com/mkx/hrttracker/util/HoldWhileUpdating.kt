@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 data class Held<T>(val value: T, val isUpdating: Boolean)
 
 /** Long enough for the indicator to slide fully in before it leaves. */
-const val UPDATING_MIN_HOLD_MILLIS = 800L
+const val UPDATING_MIN_HOLD_MILLIS = 400L
 
 /**
  * Keeps the last settled value on screen while [isUpdating] says a rebuild is
