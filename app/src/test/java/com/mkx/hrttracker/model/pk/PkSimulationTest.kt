@@ -122,6 +122,10 @@ class PkSimulationTest {
         val estrana = simulate(PkRoute.PATCH_APPLY, 0.72, days = 1, listOf(0.0, 24.0))
         assertTrue(requireNotNull(estrana.concentrationAt(24.0)) in 35.0..55.0)
 
+        // Gel 1.5 mg/day: ~67 above baseline in the Oestrogel UK SmPC, ~37 in Jarvinen 1999.
+        val gel = simulate(PkRoute.GEL, 1.5, days = 14, listOf(0.0, 13 * 24.0 + 12.0))
+        assertTrue(requireNotNull(gel.concentrationAt(13 * 24.0 + 12.0)) in 35.0..67.0)
+
         // EV tracks E2 at equal E2 content on both routes.
         for (route in listOf(PkRoute.ORAL, PkRoute.SUBLINGUAL)) {
             val times = listOf(1.0, 6.0, 30.0)

@@ -1283,8 +1283,10 @@ object PkCatalog {
             // Total-content patches are in practice Estrana tape: 0.72 mg worn 48 h holds ~52-60
             // pg/mL in postmenopausal women (JP insert), i.e. ~14% of the content delivered.
             patchFallbackK1 = 0.0035,
-            gelK1 = 0.022,
-            gelFMax = 0.06,
+            // One vote per study: EstroGel US and Oestrogel UK labels, Scott 1991, Jarvinen 1999
+            // (implied F 0.034-0.061), assuming a ~10 pg/mL baseline under unadjusted values.
+            gelK1 = 0.04,
+            gelFMax = 0.042,
         ),
         PkHormone.TESTOSTERONE to HormoneCoreParams(
             vdPerKg = 2.0,

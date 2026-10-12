@@ -35,7 +35,7 @@ should read the upstream README and its `pk_research/` workspace.
   upstream catalog for the routes it supports.
 - **Population-average parameter values.** Clearance constants
   (`kClear`, `kClearInjection`), volume-of-distribution (`vdPerKg =
-  2.0` for both hormones), gel/patch absorption rates, and the
+  2.0` for both hormones), and the
   per-compound `k1Fast` / `k1Slow` / `k2` / formation fractions are
   taken from upstream's anchored parameters, except the EB, EC and EN
   formation fractions described below. There are two more exceptions.
@@ -243,6 +243,23 @@ should read the upstream README and its `pk_research/` workspace.
   Oriowo and 1.14× of TFS. EN goes from 0.12 to 0.089, the three
   references' average. No primary EN curve was checked. EV keeps
   upstream's value; its exposure is within 8% of Oriowo and TFS.
+- **Gel delivers less E2 and is absorbed faster.** Upstream's
+  `gelFMax = 0.06` and `gelK1 = 0.022` have no stated source. Gel
+  sources disagree about 2×. The F each one implies, after removing an
+  assumed postmenopausal baseline of about 10 pg/mL from unadjusted
+  values:
+  - EstroGel FDA label, 0.75 mg/day, day-14 average 28.3 pg/mL: 0.034.
+  - Oestrogel UK SmPC, 1.5 mg/day, day-12 average 76.8: 0.061.
+  - Scott 1991, 1.5 and 3 mg: 0.053 and 0.043.
+  - Järvinen 1999, where 1.5 mg gel gave 1.09× a 50 µg/day patch:
+    0.037.
+
+  Giving each study one vote, Featherline uses `gelFMax = 0.042`. Every
+  source then sits within 0.67–1.46× of the model. `gelK1 = 0.04`
+  matches Järvinen's 4–5 h peak and the labels' steady state from the
+  third daily dose; upstream's 0.022 reached only 79% by 72 h. At 70 kg,
+  0.75 mg/day averages 23 pg/mL above baseline and 1.5 mg/day averages
+  46.
 
 ## Route-scale estimate calibration
 
