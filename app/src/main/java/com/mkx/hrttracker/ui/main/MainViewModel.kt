@@ -21,15 +21,11 @@ import com.mkx.hrttracker.model.medication.MedicineStockState
 import com.mkx.hrttracker.model.medication.lowStockSeverityRank
 import com.mkx.hrttracker.model.medication.visibleMedicationEntries
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
-import com.mkx.hrttracker.model.pk.PkCalibrationBandState
-import com.mkx.hrttracker.model.pk.PkCalibrationRenderState
 import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkPredictiveBandKnot
 import com.mkx.hrttracker.model.pk.PkMedicationSimulation
 import com.mkx.hrttracker.ui.calibration.pkCalibrationUiState
 import com.mkx.hrttracker.ui.journal.toAnchorRowUiState
-import com.mkx.hrttracker.ui.pkcalibrationdebug.PkCalibrationUiFixture
-import com.mkx.hrttracker.ui.pkcalibrationdebug.PkCalibrationUiFixtureBridge
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import com.mkx.hrttracker.util.AppTimeSnapshot
 import com.mkx.hrttracker.util.AppTimeSource
@@ -65,7 +61,6 @@ class MainViewModel @Inject constructor(
     private val homeRepository: HomeRepository,
     private val settingsRepository: SettingsRepository,
     private val timeZoneChangeNoticeController: TimeZoneChangeNoticeController,
-    private val pkUiFixtureBridge: PkCalibrationUiFixtureBridge,
     pkCalibrationLiveRepository: PkCalibrationLiveRepository,
     private val diagnosticsLogger: AppDiagnosticsLogger = AppDiagnosticsLogger(),
     appTimeSource: AppTimeSource,
@@ -79,11 +74,9 @@ class MainViewModel @Inject constructor(
      * page's own evaluation, so both screens show the same route rows. Null
      * until the first live evaluation finishes.
      */
-    val pkCalibrationSheetState: StateFlow<PkCalibrationUiState?> = combine(
-        pkCalibrationLiveRepository.liveState,
-        pkUiFixtureBridge.fixture,
-        ::pkCalibrationSheetUiState,
-    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val pkCalibrationSheetState: StateFlow<PkCalibrationUiState?> = pkCalibrationLiveRepository.liveState
+        .map(::pkCalibrationSheetUiState)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _uiState = MutableStateFlow(
         MainUiState(
@@ -144,21 +137,14 @@ class MainViewModel @Inject constructor(
             }
 
         // The Home calibration presentation comes from the snapshot, so it is
-        // on the first frame with the curve. The debug harness fixture (plan
-        // D3) overrides it so QA exercises the shipping surface.
-        val keyedInputsWithPkFlow = combine(
-            keyedInputsFlow,
-            pkUiFixtureBridge.fixture,
-        ) { keyedInputs, fixture -> keyedInputs to fixture }
-
+        // on the first frame with the curve.
         val homeStateFlow = combine(
-            keyedInputsWithPkFlow,
+            keyedInputsFlow,
             gatedSnapshot,
             timeZoneChangeNoticeController.notice,
             settingsRepository.homeLowStockSectionExpandedFlow,
             settingsRepository.homeLowStockAcknowledgedWarningStatesFlow,
-        ) { keyedInputsWithPk, timeSnapshot, timeZoneNotice, storedLowStockSectionExpanded, acknowledgedWarningStates ->
-            val (keyedInputs, fixture) = keyedInputsWithPk
+        ) { keyedInputs, timeSnapshot, timeZoneNotice, storedLowStockSectionExpanded, acknowledgedWarningStates ->
             if (!keyedInputs.key.matches(timeSnapshot)) {
                 return@combine null
             }
@@ -182,7 +168,6 @@ class MainViewModel @Inject constructor(
             withContext(defaultDispatcher) {
                 buildHomeUiState(
                     inputs = inputs,
-                    fixture = fixture,
                     now = timeSnapshot.minute,
                     zoneId = timeSnapshot.zone,
                     timeZoneNotice = timeZoneNotice,
@@ -336,7 +321,6 @@ class MainViewModel @Inject constructor(
 
     private fun buildHomeUiState(
         inputs: HomeInputs,
-        fixture: PkCalibrationUiFixture?,
         now: LocalDateTime,
         zoneId: ZoneId,
         timeZoneNotice: TimeZoneChangeNotice?,
@@ -425,7 +409,6 @@ class MainViewModel @Inject constructor(
             // projection on expiry until the snapshot rebuilds.
             pkCalibration = buildMainPkCalibration(
                 inputs = inputs,
-                fixture = fixture,
                 bandKnots = if (freshProjection != null) inputs.pkBandKnots else emptyList(),
                 now = now,
                 zoneId = zoneId,
@@ -542,7 +525,6 @@ class MainViewModel @Inject constructor(
 
     private fun buildMainPkCalibration(
         inputs: HomeInputs,
-        fixture: PkCalibrationUiFixture?,
         bandKnots: List<PkPredictiveBandKnot>,
         now: LocalDateTime,
         zoneId: ZoneId,
@@ -557,19 +539,6 @@ class MainViewModel @Inject constructor(
             windowHours = chartWindowOption.chartWindowHours,
             displayUnit = displayUnit,
         )
-        if (fixture != null) {
-            val ui = pkCalibrationUiState(fixture.result, fixture.render)
-            return MainPkCalibrationUiState(
-                adjusted = ui.effectivePromotedRoutes.isNotEmpty(),
-                limitedConfidence = ui.limitedConfidence,
-                renderUnavailable = ui.renderState == PkCalibrationRenderState.NUMERIC_UNAVAILABLE,
-                bandUnavailable = ui.bandState == PkCalibrationBandState.NUMERIC_UNAVAILABLE,
-                band = fixture.render
-                    ?.takeIf { it.bandState == PkCalibrationBandState.READY }
-                    ?.let { band(it.bandKnots) },
-                effectivePromotedRoutes = ui.effectivePromotedRoutes,
-            )
-        }
         val record = inputs.pkCalibration ?: return null
         return MainPkCalibrationUiState(
             adjusted = record.adjusted,
@@ -591,12 +560,8 @@ class MainViewModel @Inject constructor(
     }
 }
 
-/** Fixture first (the debug harness drives the real surface), then the live evaluation; a failed one shows the numeric-failure sheet. */
-internal fun pkCalibrationSheetUiState(
-    live: PkCalibrationLiveResult?,
-    fixture: PkCalibrationUiFixture?,
-): PkCalibrationUiState? = when {
-    fixture != null -> pkCalibrationUiState(fixture.result, fixture.render)
+/** Null while the first live evaluation loads; a failed one shows the numeric-failure sheet. */
+internal fun pkCalibrationSheetUiState(live: PkCalibrationLiveResult?): PkCalibrationUiState? = when {
     live == null -> null
     else -> live.live?.let { pkCalibrationUiState(it.evaluation.result, it.render) }
         ?: pkCalibrationUnavailableScreenState().ui

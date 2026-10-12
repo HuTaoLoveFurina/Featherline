@@ -8,8 +8,6 @@ import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.model.bloodtest.BloodTestPanel
 import com.mkx.hrttracker.model.settings.SettingsState
-import com.mkx.hrttracker.ui.pkcalibrationdebug.PkCalibrationUiFixture
-import com.mkx.hrttracker.ui.pkcalibrationdebug.PkCalibrationUiFixtureBridge
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +25,6 @@ class CalibrationViewModel @Inject constructor(
     private val bloodTestRepository: BloodTestRepository,
     private val settingsRepository: SettingsRepository,
     private val pkCalibrationLiveRepository: PkCalibrationLiveRepository,
-    private val pkUiFixtureBridge: PkCalibrationUiFixtureBridge,
 ) : ViewModel() {
     private val isDeletingAllEntries = MutableStateFlow(false)
     private val deleteAllEntriesResult =
@@ -67,33 +64,20 @@ class CalibrationViewModel @Inject constructor(
      * shows the numeric-failure row with Try again instead of hiding the
      * section.
      */
-    val pkCalibrationState: StateFlow<PkCalibrationScreenState?> = combine(
-        pkCalibrationLiveRepository.liveState,
-        pkUiFixtureBridge.fixture,
-        ::pkScreenState,
-    )
+    val pkCalibrationState: StateFlow<PkCalibrationScreenState?> = pkCalibrationLiveRepository.liveState
+        .map(::pkScreenState)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             // Seeded from the current values so the section is in the first
             // frame; a section inserted above the viewport one frame later
             // shifts the keyed LazyColumn down by its own height.
-            initialValue = pkScreenState(
-                pkCalibrationLiveRepository.liveState.value,
-                pkUiFixtureBridge.fixture.value,
-            ),
+            initialValue = pkScreenState(pkCalibrationLiveRepository.liveState.value),
         )
 
     private fun pkScreenState(
         liveState: PkCalibrationLiveResult?,
-        fixture: PkCalibrationUiFixture?,
     ): PkCalibrationScreenState? = when {
-        // Debug harness fixture drives the real surface.
-        fixture != null -> PkCalibrationScreenState(
-            ui = pkCalibrationUiState(fixture.result, fixture.render),
-            excludedResultIds = fixture.excludedResultIds,
-        )
-
         liveState == null -> null
 
         else -> liveState.live?.let(::pkCalibrationScreenState)

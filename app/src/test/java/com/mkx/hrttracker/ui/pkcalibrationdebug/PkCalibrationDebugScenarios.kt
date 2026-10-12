@@ -31,7 +31,7 @@ enum class PkCalibrationDebugFixtureDisposition {
 }
 
 /**
- * Picker state for the debug harness. It is not a model result: the fixture built from it
+ * Scenario inputs for the unit-test fixtures. It is not a model result: the fixture built from it
  * is made of production contract objects.
  */
 data class PkCalibrationDebugScenario(
