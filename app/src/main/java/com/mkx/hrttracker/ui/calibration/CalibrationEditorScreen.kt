@@ -453,7 +453,6 @@ private fun CalibrationEditorScreenContent(
                                         onExclude = { onPkExcludeLab(flag.resultId) },
                                         onReinclude = { onPkReincludeLab(flag.resultId) },
                                         onAccept = { onPkAcceptLab(flag.resultId) },
-                                        enabled = !isCalibrationEditorBusy(uiState),
                                         containerColor = Color.Transparent,
                                     )
                                 }

@@ -548,7 +548,6 @@ fun PkCalibrationLabRowFooter(
     onReinclude: () -> Unit,
     onAccept: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true,
     // Transparent where the caller's card is already the surface (result editor).
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
 ) {
@@ -562,7 +561,7 @@ fun PkCalibrationLabRowFooter(
             text = stringResource(R.string.calibration_pk_lab_accepted_body),
             modifier = note.padding(start = 12.dp, top = 4.dp, end = 4.dp, bottom = 4.dp),
         ) {
-            TextButton(onClick = onReinclude, enabled = enabled) {
+            TextButton(onClick = onReinclude) {
                 Text(text = stringResource(R.string.calibration_pk_lab_show_review))
             }
         }
@@ -572,7 +571,7 @@ fun PkCalibrationLabRowFooter(
                 body = stringResource(R.string.calibration_pk_lab_invalid_body),
                 modifier = note,
             ) {
-                TextButton(onClick = onExclude, enabled = enabled) {
+                TextButton(onClick = onExclude) {
                     Text(text = stringResource(R.string.calibration_pk_lab_dismiss))
                 }
             }
@@ -599,13 +598,12 @@ fun PkCalibrationLabRowFooter(
                 modifier = note,
             ) {
                 // Keep leaves the result at its reduced weight; Exclude drops it.
-                TextButton(onClick = onAccept, enabled = enabled) {
+                TextButton(onClick = onAccept) {
                     Text(text = stringResource(R.string.calibration_pk_lab_keep))
                 }
                 HrtFilledTonalButton(
                     text = stringResource(R.string.calibration_pk_lab_outlier_exclude),
                     onClick = onExclude,
-                    enabled = enabled,
                     compact = true,
                 )
             }
@@ -619,7 +617,7 @@ fun PkCalibrationLabRowFooter(
             ),
             modifier = note.padding(start = 12.dp, top = 4.dp, end = 4.dp, bottom = 4.dp),
         ) {
-            TextButton(onClick = onReinclude, enabled = enabled) {
+            TextButton(onClick = onReinclude) {
                 Text(
                     text = stringResource(
                         if (flag.dismissed) R.string.calibration_pk_lab_show_review
