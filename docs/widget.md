@@ -371,8 +371,9 @@ graph TD
   whether the PK projection has expired, or whether any row's
   `UPCOMING`/`DUE_SOON` status should have transitioned by `now`. If
   any of those are true it calls
-  `homeSnapshotRepository.refreshHomeSnapshotIfNeeded(force = true)` —
-  which routes back into the home-snapshot observer above. Otherwise it
+  `homeSnapshotRepository.refreshHomeSnapshotIfNeeded(force = true, silent = true)`
+  — forced past the usable-snapshot check but without the Home updating
+  indicator — which routes back into the home-snapshot observer above. Otherwise it
   just calls `updateAllHrtWidgets` to re-render against the existing
   snapshot.
 - **Date / time / timezone events.**

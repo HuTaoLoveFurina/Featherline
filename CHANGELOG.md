@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The prediction interval now breaks where calibration stops shaping the curve, instead of bridging short gaps with a straight line.
 - The "results to check" sheet now slides away before opening a result instead of blinking off.
 - Tapping a route in the calibration page's Routes card now opens the routes sheet, like tapping the card's header.
+- The day you selected on the History calendar stays selected when you switch to another tab and back. Leaving History with the back button still resets the calendar.
+- Turning reminders on from the "notifications are off" message no longer makes the switch flick off before it turns on after you grant the permission, and a failed save no longer leaves the switch showing on.
+- The Calibration entry in Settings shows "calibrated" or "population estimate" as soon as Settings opens, instead of appearing a few seconds after the app starts. It now reads the same information as the estradiol title on Home.
+- The refresh indicator under the top bar no longer appears a few seconds after the app starts when nothing changed. Rebuilds caused by the device booting, the clock or time zone changing, an app update, or the midnight refresh now run silently; the indicator shows only after you change data.
 
 ### Changed
 

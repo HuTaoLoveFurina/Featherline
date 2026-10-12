@@ -516,7 +516,19 @@ keeps the settled value and shows `TopUpdatingIndicator` until the
 rebuild lands, for at least `UPDATING_MIN_HOLD_MILLIS` counted from
 when the screen is visible. A rebuild that lands while the screen is
 hidden releases at once. Home's launch refresh is not forced, so the
-indicator does not show on every start.
+indicator does not show on every start. System events (boot, clock or
+time-zone change, package replaced, the midnight widget refresh) do
+force a rebuild past the usable-snapshot check but pass `silent = true`
+to `refreshHomeSnapshotAsync` / `refreshHomeSnapshotIfNeeded`, which
+keeps them out of `forcedRebuildInFlight` and off the build's forced
+flag: they land in the background without the indicator.
+
+`HomeSnapshotRepository.latestObservedSnapshot` holds the record
+`observeHomeSnapshot` delivered last. Home and the widget observer
+collect from launch, so a screen opened later can seed its first frame
+from it; `SettingsViewModel` reads the calibration row's basis
+(`pkCalibration.adjusted`, the same record behind Home's hero title)
+from it instead of waiting on `PkCalibrationLiveRepository`.
 
 Bundling the PK projection into the same record as the
 plan-and-fulfillment cache is a known leaky seam:
