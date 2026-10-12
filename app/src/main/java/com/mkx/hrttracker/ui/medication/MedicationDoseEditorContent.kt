@@ -58,7 +58,6 @@ import com.mkx.hrttracker.model.medication.MedicineStockProjection
 import com.mkx.hrttracker.model.medication.MedicineStockState
 import com.mkx.hrttracker.ui.components.ConnectedButtonGroup
 import com.mkx.hrttracker.ui.components.MedicationCardWithStockSubcard
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.util.labelRes
 import kotlin.math.roundToInt
 
@@ -471,7 +470,6 @@ internal fun DoseAssistPresetRow(
                     label = {
                         Text(
                             text = label,
-                            modifier = Modifier.cjkTextOffset(label),
                         )
                     },
                 )

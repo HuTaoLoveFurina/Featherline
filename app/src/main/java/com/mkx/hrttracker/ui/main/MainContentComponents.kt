@@ -124,7 +124,6 @@ import com.mkx.hrttracker.ui.components.EditorSegmentedListItem
 import com.mkx.hrttracker.ui.components.HrtPill
 import com.mkx.hrttracker.ui.components.HrtPillSize
 import com.mkx.hrttracker.ui.components.SupportMessageListItem
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.medication.MedicationApplicationIcon
 import com.mkx.hrttracker.ui.medication.doseInstructionSummary
 import com.mkx.hrttracker.ui.medication.medicationEntryTitle
@@ -137,7 +136,6 @@ import com.mkx.hrttracker.util.formatMainE2ConcentrationValue
 import com.mkx.hrttracker.util.labelRes
 import com.mkx.hrttracker.util.localizedShortTimeFormatter
 import com.mkx.hrttracker.util.medicationGroupScheduleDateFormatter
-import com.mkx.hrttracker.util.rememberAppLocale
 import com.mkx.hrttracker.util.rememberLocalizedShortTimeFormatter
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
@@ -571,7 +569,6 @@ internal fun MainE2HeroCard(
                             color = heroSupportingColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.cjkTextOffset(titleText)
                         )
                         // Opens the estimate sheet: the routes behind the value
                         // and the estimate disclaimer. Nothing is announced
@@ -2958,7 +2955,6 @@ private fun MainE2ChartCardHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.cjkTextOffset(mainE2ChartTitleText)
             )
             Spacer(modifier = Modifier.width(4.dp))
             IconButton(
@@ -3068,7 +3064,6 @@ private fun MainAntiandrogenCardHeader(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.cjkTextOffset(title)
         )
     }
 }
@@ -3218,7 +3213,6 @@ private fun MainAntiandrogenMedicationSubCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.cjkTextOffset(medicationName),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -3228,7 +3222,6 @@ private fun MainAntiandrogenMedicationSubCard(
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.cjkTextOffset(supportingText),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -3744,8 +3737,7 @@ private fun MainTodayDoseRow(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier
                                 .weight(1f)
-                                .alignByBaseline()
-                                .cjkTextOffset(headline),
+                                .alignByBaseline(),
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -3764,8 +3756,7 @@ private fun MainTodayDoseRow(
                             fontWeight = FontWeight.Normal,
                             modifier = Modifier
                                 .weight(1f)
-                                .alignByBaseline()
-                                .cjkTextOffset(supportingText),
+                                .alignByBaseline(),
                         )
                     }
                 }
@@ -3850,7 +3841,6 @@ private fun MainUpcomingDoseRow(
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.End,
                     maxLines = 1,
-                    modifier = Modifier.cjkTextOffset(timeLabel)
                 )
             }
         ) {
@@ -3871,7 +3861,6 @@ private fun MainUpcomingDoseRow(
                     Text(
                         text = headline,
                         style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.cjkTextOffset(headline),
                         fontWeight = FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
@@ -3882,7 +3871,6 @@ private fun MainUpcomingDoseRow(
                             text = supportingText,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.cjkTextOffset(supportingText),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -3990,7 +3978,6 @@ private fun MainTodayTrailingContent(
                         },
                         textAlign = TextAlign.End,
                         maxLines = 1,
-                        modifier = Modifier.cjkTextOffset(textLabel.text)
                     )
                 }
             }
@@ -4196,8 +4183,7 @@ private fun MainSectionHeader(
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier
-                .alignByBaseline()
-                .cjkTextOffset(title),
+                .alignByBaseline(),
             maxLines = 1,
         )
         if (!summary.isNullOrEmpty()) {
@@ -4214,8 +4200,7 @@ private fun MainSectionHeader(
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 modifier = Modifier
-                    .alignByBaseline()
-                    .cjkTextOffset(summary),
+                    .alignByBaseline(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.End
@@ -4234,7 +4219,6 @@ private fun MainTodayTimeRangeHeader(
     timeFormatter: DateTimeFormatter,
     modifier: Modifier = Modifier
 ) {
-    val appLocale = rememberAppLocale()
     val timeRangeLabel = stringResource(timeRange.labelRes)
     val timeRangeTimeLabel = mainTodayTimeRangeTimeLabel(
         timeRange = timeRange,
@@ -4262,14 +4246,11 @@ private fun MainTodayTimeRangeHeader(
             },
             size = HrtPillSize.Medium,
         ) {
-            // Icon, label, and time share one ConstraintLayout so their vertical
-            // alignment is explicit and independent of each other's height. The icon
-            // is centered on the CJK label (reproducing the pill row's old
-            // CenterVertically pairing), and the time label's baseline is constrained
-            // one-directionally to the CJK label — so neither the time label's metrics
-            // nor its presence can shift the icon/label alignment.
-            ConstraintLayout {
-                val (iconRef, labelRef, timeRef) = createRefs()
+            // Both labels share labelMedium, so centring them also lines up their baselines.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Icon(
                     painter = painterResource(iconDrawableRes),
                     contentDescription = null,
@@ -4278,13 +4259,7 @@ private fun MainTodayTimeRangeHeader(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    modifier = Modifier
-                        .size(14.dp)
-                        .constrainAs(iconRef) {
-                            start.linkTo(parent.start)
-                            top.linkTo(labelRef.top)
-                            bottom.linkTo(labelRef.bottom)
-                        }
+                    modifier = Modifier.size(14.dp)
                 )
                 Text(
                     text = timeRangeLabel,
@@ -4295,12 +4270,6 @@ private fun MainTodayTimeRangeHeader(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
-                    modifier = Modifier
-                        .constrainAs(labelRef) {
-                            start.linkTo(iconRef.end, margin = 6.dp)
-                            top.linkTo(parent.top)
-                        }
-                        .cjkTextOffset(timeRangeLabel)
                 )
                 Text(
                     text = timeRangeTimeLabel,
@@ -4310,15 +4279,7 @@ private fun MainTodayTimeRangeHeader(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    // Locale-based, not content-based: a 24h time string is pure
-                    // digits yet must still ride up with the CJK label.
-                    modifier = Modifier
-                        .constrainAs(timeRef) {
-                            start.linkTo(labelRef.end, margin = 6.dp)
-                            baseline.linkTo(labelRef.baseline)
-                        }
-                        .padding(end = 1.dp)
-                        .cjkTextOffset(appLocale)
+                    modifier = Modifier.padding(end = 1.dp)
                 )
             }
         }

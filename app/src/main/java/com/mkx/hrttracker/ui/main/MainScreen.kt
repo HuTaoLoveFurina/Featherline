@@ -52,7 +52,6 @@ import com.mkx.hrttracker.ui.components.AppContentContainer
 import com.mkx.hrttracker.ui.components.HazeCenterAlignedTopAppBar
 import com.mkx.hrttracker.ui.components.ScrollToTopSignalEffect
 import com.mkx.hrttracker.ui.components.appContentPaddingValuesBehindTopAppBar
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.components.paddingBehindTopAppBar
 import com.mkx.hrttracker.ui.components.pinnedTopAppBarScrollBehavior
 import com.mkx.hrttracker.ui.components.topAppBarScrollToTop
@@ -205,7 +204,6 @@ fun MainScreen(
                     val title = stringResource(R.string.tab_main)
                     Text(
                         text = title,
-                        modifier = Modifier.cjkTextOffset(title, amount = (-1.5).dp),
                     )
                 },
                 actions = {
@@ -365,7 +363,6 @@ internal fun HomeMoreOptionsMenu(
                     text = {
                         Text(
                             text = selectUnitText,
-                            modifier = Modifier.cjkTextOffset(selectUnitText)
                         )
                     },
                     shape = MaterialTheme.shapes.medium,
@@ -387,7 +384,6 @@ internal fun HomeMoreOptionsMenu(
                     text = {
                         Text(
                             text = customizeCardsText,
-                            modifier = Modifier.cjkTextOffset(customizeCardsText),
                         )
                     },
                     shape = MaterialTheme.shapes.medium,

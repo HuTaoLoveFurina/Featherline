@@ -93,7 +93,6 @@ import com.mkx.hrttracker.ui.components.NavigationLockEffect
 import com.mkx.hrttracker.ui.components.PreferenceSegmentedListItem
 import com.mkx.hrttracker.ui.components.SupportMessageListItem
 import com.mkx.hrttracker.ui.components.appContentPaddingValuesBehindTopAppBar
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.components.paddingBehindTopAppBar
 import com.mkx.hrttracker.ui.components.pinnedTopAppBarScrollBehavior
 import com.mkx.hrttracker.ui.components.topAppBarScrollToTop
@@ -266,7 +265,6 @@ private fun CalibrationScreenContent(
                     val title = stringResource(R.string.settings_personalization_calibration)
                     Text(
                         text = title,
-                        modifier = Modifier.cjkTextOffset(title, amount = (-1.5).dp),
                     )
                 },
                 navigationIcon = {
@@ -1076,7 +1074,6 @@ private fun CalibrationPanelMetadataRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     maxLines = 1,
-                    modifier = Modifier.cjkTextOffset(elapsedLabel),
                 )
             }
         }
@@ -1096,7 +1093,6 @@ private fun CalibrationPanelMetadataRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    modifier = Modifier.cjkTextOffset(extraEntriesLabel),
                 )
             }
         }

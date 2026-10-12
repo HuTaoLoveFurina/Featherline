@@ -43,7 +43,6 @@ class SettingsPkCalibrationDebugEntryTest {
                     onDarkModeOptionChange = {},
                     onAdaptiveColorEnabledChange = {},
                     onPureBlackEnabledChange = {},
-                    onCjkTextOffsetEnabledChange = {},
                     onHazeBlurEnabledChange = {},
                     onShowArchivedGroupRecordsChange = {},
                     onHideReferenceRangesChange = {},
