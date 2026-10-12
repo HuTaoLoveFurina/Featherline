@@ -67,7 +67,7 @@ class SettingsViewModelTest {
     private val userProfileRepository: UserProfileRepository = mockk()
     private val bloodTestRepository: BloodTestRepository = mockk()
     private val homeSnapshotRepository: HomeSnapshotRepository = mockk {
-        every { observeHomeSnapshot() } returns flowOf(null)
+        every { latestObservedSnapshot } returns MutableStateFlow(null)
     }
     private val appLockSecurityManager: AppLockSecurityManager = mockk(relaxed = true)
     private val medicationReminderScheduler: MedicationReminderScheduler = mockk(relaxed = true)
@@ -546,8 +546,8 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun uiState_calibrationFollowsTheHomeSnapshotRecord() = runTest {
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(
+    fun uiState_seedsCalibrationFromTheObservedSnapshotBeforeCombineRuns() {
+        every { homeSnapshotRepository.latestObservedSnapshot } returns MutableStateFlow(
             HomeSnapshotRecord(
                 schemaVersion = 1,
                 generatedAtEpochMillis = 0L,
@@ -568,8 +568,8 @@ class SettingsViewModelTest {
         )
 
         val viewModel = createViewModel()
-        advanceUntilIdle()
 
+        // Synchronous: the row must not flash empty on the first frame.
         assertEquals(true, viewModel.uiState.value.calibrationAdjusted)
     }
 

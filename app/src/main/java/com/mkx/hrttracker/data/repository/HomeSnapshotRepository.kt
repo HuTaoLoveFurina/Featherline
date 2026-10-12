@@ -120,6 +120,15 @@ class HomeSnapshotRepository @Inject constructor(
         get() = lastWriteState
     private val lastWriteState = MutableStateFlow<HomeSnapshotWrite?>(null)
 
+    /**
+     * The record [observeHomeSnapshot] delivered last. Home and the widget
+     * observer collect from launch, so a screen opened later (Settings) can
+     * seed its first frame from this instead of waiting on its own collection.
+     */
+    val latestObservedSnapshot: StateFlow<HomeSnapshotRecord?>
+        get() = latestObservedSnapshotState
+    private val latestObservedSnapshotState = MutableStateFlow<HomeSnapshotRecord?>(null)
+
     fun observeHomeSnapshot(): Flow<HomeSnapshotRecord?> {
         return combine(
             homeSnapshotStore.observeSnapshot(),
@@ -155,6 +164,7 @@ class HomeSnapshotRepository @Inject constructor(
         }
             .distinctUntilChanged()
             .onEach { snapshot ->
+                latestObservedSnapshotState.value = snapshot
                 StartupTiming.mark(
                     if (snapshot == null) {
                         "home_snapshot_missing"

@@ -38,8 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.runningReduce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharedFlow
@@ -120,13 +119,14 @@ class SettingsViewModel @Inject constructor(
         isExternalImportInProgress,
         isWeightMutationInProgress,
         // The same basis Home's hero title names, from the snapshot it is
-        // built with, so the calibration row never lags the hero. A mutation
-        // clears the snapshot until its rebuild lands; the last record holds.
-        homeSnapshotRepository.observeHomeSnapshot()
-            .mapNotNull { snapshot -> snapshot }
-            .map { snapshot -> snapshot.pkCalibration?.adjusted }
-            .distinctUntilChanged()
-            .onStart { emit(null) },
+        // built with, so the calibration row never lags the hero. The first
+        // value is the current one (no start-with-null: that would reach the
+        // combine after the seed and blank the row for a frame); a mutation
+        // clears the snapshot until its rebuild lands, so the last record holds.
+        homeSnapshotRepository.latestObservedSnapshot
+            .runningReduce { held, snapshot -> snapshot ?: held }
+            .map { snapshot -> snapshot?.pkCalibration?.adjusted }
+            .distinctUntilChanged(),
     ) { values ->
         val settingsState = values[0] as SettingsState
         val profile = values[1] as UserProfile?
@@ -157,7 +157,13 @@ class SettingsViewModel @Inject constructor(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
-        initialValue = SettingsUiState(),
+        // Seeded from the snapshot Home already observed so the calibration
+        // row has its support text on the first frame; the combine above
+        // waits on a Room read before its first value.
+        initialValue = SettingsUiState(
+            calibrationAdjusted = homeSnapshotRepository.latestObservedSnapshot.value
+                ?.pkCalibration?.adjusted,
+        ),
     )
 
     init {
