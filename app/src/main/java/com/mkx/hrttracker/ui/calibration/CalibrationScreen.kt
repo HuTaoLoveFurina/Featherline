@@ -92,6 +92,7 @@ import com.mkx.hrttracker.ui.components.MedicalDisclaimerText
 import com.mkx.hrttracker.ui.components.NavigationLockEffect
 import com.mkx.hrttracker.ui.components.PreferenceSegmentedListItem
 import com.mkx.hrttracker.ui.components.SupportMessageListItem
+import com.mkx.hrttracker.ui.components.TopUpdatingIndicator
 import com.mkx.hrttracker.ui.components.appContentPaddingValuesBehindTopAppBar
 import com.mkx.hrttracker.ui.components.paddingBehindTopAppBar
 import com.mkx.hrttracker.ui.components.pinnedTopAppBarScrollBehavior
@@ -424,6 +425,7 @@ private fun CalibrationScreenContent(
                     }
                 }
             }
+            TopUpdatingIndicator(isUpdating = uiState.isUpdating, innerPadding = innerPadding)
         }
     }
 

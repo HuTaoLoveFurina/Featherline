@@ -776,12 +776,19 @@ class HomeSnapshotRepositoryTest {
         // The caller is back before the rebuild; Home sees it in flight so it
         // holds the skeleton rather than flashing a population curve.
         assertTrue(repository.rebuildInFlight.first())
+        assertTrue(repository.forcedRebuildInFlight.first())
         awaitRebuild(appScheduler) { written }
         // The in-flight count drops once the refresh coroutine unwinds.
         appScheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) { homeSnapshotStore.writeSnapshot(any()) }
         assertFalse(repository.rebuildInFlight.first())
+        assertFalse(repository.forcedRebuildInFlight.first())
+
+        // Home's launch request is not a forced rebuild: no updating indicator.
+        repository.refreshHomeSnapshotAsync(force = false)
+        assertTrue(repository.rebuildInFlight.first())
+        assertFalse(repository.forcedRebuildInFlight.first())
     }
 
     @Test

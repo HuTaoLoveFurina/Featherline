@@ -59,6 +59,7 @@ class CalibrationViewModelTest {
     private val settingsRepository: SettingsRepository = mockk()
     private val pkCalibrationLiveRepository: PkCalibrationLiveRepository = mockk {
         every { liveState } returns MutableStateFlow<PkCalibrationLiveResult?>(PkCalibrationLiveResult(null))
+        every { updating } returns MutableStateFlow(false)
     }
     private val dispatcher = StandardTestDispatcher()
     private lateinit var settingsStateFlow: MutableStateFlow<SettingsState>

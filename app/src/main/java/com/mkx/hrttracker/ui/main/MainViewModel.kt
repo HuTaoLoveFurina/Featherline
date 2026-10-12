@@ -31,6 +31,7 @@ import com.mkx.hrttracker.util.AppTimeSnapshot
 import com.mkx.hrttracker.util.AppTimeSource
 import com.mkx.hrttracker.util.TimeZoneChangeNotice
 import com.mkx.hrttracker.util.TimeZoneChangeNoticeController
+import com.mkx.hrttracker.util.holdWhileUpdating
 import com.mkx.hrttracker.util.tickWhileSubscribed
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -107,7 +108,9 @@ class MainViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            buildUiStateFlow().collect { state -> _uiState.value = state }
+            buildUiStateFlow()
+                .holdWhileUpdating { state -> state.isUpdating }
+                .collect { held -> _uiState.value = held.value.copy(isUpdating = held.isUpdating) }
         }
     }
 
@@ -281,7 +284,7 @@ class MainViewModel @Inject constructor(
 
     fun setHomeE2ChartWindowOption(option: HomeE2ChartWindowOption) {
         viewModelScope.launch {
-            settingsRepository.setHomeE2ChartWindowOption(option)
+            homeRepository.setHomeE2ChartWindowOption(option)
         }
     }
 
@@ -399,6 +402,7 @@ class MainViewModel @Inject constructor(
 
         return MainUiState(
             homeDataReady = true,
+            isUpdating = inputs.isRebuilding,
             e2TrendReady = e2TrendReady,
             homeSource = inputs.source,
             now = now,

@@ -98,6 +98,16 @@ class HomeSnapshotRepository @Inject constructor(
         get() = activeRefreshes.map { count -> count > 0 }.distinctUntilChanged()
     private val activeRefreshes = MutableStateFlow(0)
 
+    /**
+     * [rebuildInFlight] for mutations and forced requests only: the rebuilds
+     * that change what Home and the calibration page show. Their updating
+     * indicator follows this, so Home's launch request, which usually ends
+     * at the skip-check, does not flash it.
+     */
+    val forcedRebuildInFlight: Flow<Boolean>
+        get() = activeForcedRefreshes.map { count -> count > 0 }.distinctUntilChanged()
+    private val activeForcedRefreshes = MutableStateFlow(0)
+
     init {
         // Observe option changes (not the initial value) and force a rebuild
         // when the user toggles 7-day/30-day. The first emission is the
@@ -208,6 +218,7 @@ class HomeSnapshotRepository @Inject constructor(
                 // it draws the population fallback for a frame before the
                 // skeleton.
                 activeRefreshes.update { count -> count + 1 }
+                activeForcedRefreshes.update { count -> count + 1 }
                 generation = homeSnapshotGenerationStore.incrementGeneration()
                 diagnosticsLogger.info(
                     TAG,
@@ -419,10 +430,14 @@ class HomeSnapshotRepository @Inject constructor(
     ) {
         diagnosticsLogger.info(TAG, "home_snapshot_refresh_async_enqueued force=$force now=$now")
         activeRefreshes.update { count -> count + 1 }
+        if (force) activeForcedRefreshes.update { count -> count + 1 }
         launchCountedRefresh(now = now, force = force, zoneId = zoneId)
     }
 
-    /** Runs a refresh in the app scope; the caller has already counted it in [activeRefreshes]. */
+    /**
+     * Runs a refresh in the app scope; the caller has already counted it in
+     * [activeRefreshes] (and, when forced, in [activeForcedRefreshes]).
+     */
     private fun launchCountedRefresh(now: LocalDateTime, force: Boolean, zoneId: ZoneId) {
         // Reserve the request's place in line synchronously: the launched
         // coroutine may reach the refresh mutex after a later request's.
@@ -446,6 +461,7 @@ class HomeSnapshotRepository @Inject constructor(
                 )
             } finally {
                 activeRefreshes.update { count -> count - 1 }
+                if (force) activeForcedRefreshes.update { count -> count - 1 }
             }
         }
     }

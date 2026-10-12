@@ -91,6 +91,7 @@ class HomeRepositoryTest {
         // tests that don't exercise archiving don't deadlock the combine.
         every { homeDao.observeArchivedGroups() } returns flowOf(emptyList())
         every { homeSnapshotRepository.rebuildInFlight } returns flowOf(false)
+        every { homeSnapshotRepository.forcedRebuildInFlight } returns flowOf(false)
         every { medicineRepository.observeAllActiveTracked() } returns flowOf(emptyList())
         every {
             medicationLogRepository.observeScheduledEntriesInWindow(any(), any())

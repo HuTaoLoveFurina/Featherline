@@ -8,6 +8,8 @@ import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.model.bloodtest.BloodTestPanel
 import com.mkx.hrttracker.model.settings.SettingsState
+import com.mkx.hrttracker.util.Held
+import com.mkx.hrttracker.util.holdWhileUpdating
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,31 +33,55 @@ class CalibrationViewModel @Inject constructor(
         MutableStateFlow<CalibrationDeleteAllEntriesResult?>(null)
     private val cachedPanels = bloodTestRepository.getCachedPanels()
 
+    // The lab list and the lab adjustment section change together: a lab
+    // write holds both until its rebuild lands, so a new row never shows
+    // beside a section that has not re-solved yet.
+    private val heldData: StateFlow<Held<CalibrationData>> = combine(
+        bloodTestRepository.observePanels(),
+        pkCalibrationLiveRepository.liveState,
+        pkCalibrationLiveRepository.updating,
+    ) { panels, live, updating -> CalibrationData(panels, live, updating) }
+        .holdWhileUpdating { data -> data.updating }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = Held(
+                CalibrationData(
+                    panels = cachedPanels,
+                    live = pkCalibrationLiveRepository.liveState.value,
+                    updating = false,
+                ),
+                isUpdating = false,
+            ),
+        )
+
     // Loading also waits for the first live evaluation so the lab adjustment
     // section is in the first rendered frame rather than popping in above
     // the lab list.
     val uiState: StateFlow<CalibrationUiState> = combine(
-        bloodTestRepository.observePanels(),
+        heldData,
         settingsRepository.settingsState,
         isDeletingAllEntries,
         deleteAllEntriesResult,
-        pkCalibrationLiveRepository.liveState,
-    ) { panels, settingsState, isDeletingAllEntries, deleteAllEntriesResult, live ->
-        CalibrationUiState(
-            panels = panels,
-            settingsState = settingsState,
-            isLoading = live == null,
+    ) { held, settingsState, isDeletingAllEntries, deleteAllEntriesResult ->
+        calibrationUiState(held, settingsState).copy(
             isDeletingAllEntries = isDeletingAllEntries,
             deleteAllEntriesResult = deleteAllEntriesResult,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
-        initialValue = CalibrationUiState(
-            panels = cachedPanels.orEmpty(),
-            settingsState = settingsRepository.settingsState.value,
-            isLoading = cachedPanels == null || pkCalibrationLiveRepository.liveState.value == null,
-        ),
+        initialValue = calibrationUiState(heldData.value, settingsRepository.settingsState.value),
+    )
+
+    private fun calibrationUiState(
+        held: Held<CalibrationData>,
+        settingsState: SettingsState,
+    ) = CalibrationUiState(
+        panels = held.value.panels.orEmpty(),
+        settingsState = settingsState,
+        isLoading = held.value.panels == null || held.value.live == null,
+        isUpdating = held.isUpdating,
     )
 
     /**
@@ -64,15 +90,15 @@ class CalibrationViewModel @Inject constructor(
      * shows the numeric-failure row with Try again instead of hiding the
      * section.
      */
-    val pkCalibrationState: StateFlow<PkCalibrationScreenState?> = pkCalibrationLiveRepository.liveState
-        .map(::pkScreenState)
+    val pkCalibrationState: StateFlow<PkCalibrationScreenState?> = heldData
+        .map { held -> pkScreenState(held.value.live) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             // Seeded from the current values so the section is in the first
             // frame; a section inserted above the viewport one frame later
             // shifts the keyed LazyColumn down by its own height.
-            initialValue = pkScreenState(pkCalibrationLiveRepository.liveState.value),
+            initialValue = pkScreenState(heldData.value.value.live),
         )
 
     private fun pkScreenState(
@@ -124,10 +150,19 @@ class CalibrationViewModel @Inject constructor(
     }
 }
 
+private data class CalibrationData(
+    /** Null until the first read. */
+    val panels: List<BloodTestPanel>?,
+    val live: PkCalibrationLiveResult?,
+    val updating: Boolean,
+)
+
 data class CalibrationUiState(
     val panels: List<BloodTestPanel> = emptyList(),
     val settingsState: SettingsState = SettingsState(),
     val isLoading: Boolean = false,
+    /** Shows the top updating indicator; the list and section are held until the rebuild lands. */
+    val isUpdating: Boolean = false,
     val isDeletingAllEntries: Boolean = false,
     val deleteAllEntriesResult: CalibrationDeleteAllEntriesResult? = null,
 )

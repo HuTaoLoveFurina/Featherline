@@ -17,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -85,6 +86,13 @@ class PkCalibrationLiveRepository @Inject constructor(
             started = SharingStarted.Eagerly,
             initialValue = null,
         )
+
+    /**
+     * True while a dose, lab or other data change is being re-solved; the
+     * calibration page holds its list and section until the rebuild lands.
+     */
+    val updating: Flow<Boolean>
+        get() = homeSnapshotRepository.forcedRebuildInFlight
 
     /** Re-solves: a forced snapshot rebuild publishes a new build to render. */
     fun retry() {

@@ -206,7 +206,10 @@ class HomeRepository @Inject constructor(
         val nowAndRebuildFlow = combine(
             nowFlow,
             homeSnapshotRepository.rebuildInFlight,
-        ) { now, rebuildInFlight -> now to rebuildInFlight }
+            homeSnapshotRepository.forcedRebuildInFlight,
+        ) { now, rebuildInFlight, forcedRebuildInFlight ->
+            Triple(now, rebuildInFlight, forcedRebuildInFlight)
+        }
         // A rebuild clears the stored snapshot for a fraction of a second
         // (about 200 ms on a release build). Through that gap the PK fields
         // come from the last usable snapshot, so the curve, band and hero
@@ -220,7 +223,7 @@ class HomeRepository @Inject constructor(
             settingsRepository.homeE2ChartWindowOptionFlow,
             stockAndAnchorInputsFlow,
             nowAndRebuildFlow,
-        ) { inputs, snapshot, option, stockAndAnchorInputs, (now, rebuildInFlight) ->
+        ) { inputs, snapshot, option, stockAndAnchorInputs, (now, rebuildInFlight, forcedRebuildInFlight) ->
             suppressInconsistentHomeEmission("room_inputs") {
                 if (inputs.settings.homeE2ChartWindowOption != option) {
                     null
@@ -287,6 +290,7 @@ class HomeRepository @Inject constructor(
                         homeAnchor = stockAndAnchorInputs.homeAnchor,
                         source = HomeInputSource.ROOM,
                         now = now,
+                        isRebuilding = forcedRebuildInFlight,
                     )
                 }
             }
@@ -519,6 +523,20 @@ class HomeRepository @Inject constructor(
             .flowOn(Dispatchers.IO)
     }
 
+    /**
+     * A data change like any other: counted as a rebuild from before the
+     * write, so Home holds its chart instead of drawing the population
+     * fallback until the option observer's rebuild is counted.
+     */
+    suspend fun setHomeE2ChartWindowOption(option: HomeE2ChartWindowOption) {
+        // ponytail: the option observer rebuilds again and this mutation's build
+        // is dropped at write; skip the observer for this path if the double
+        // solve ever shows.
+        homeSnapshotRepository.runHomeDataMutation {
+            settingsRepository.setHomeE2ChartWindowOption(option)
+        }
+    }
+
     fun refreshHomeSnapshotAsync(
         now: LocalDateTime,
         force: Boolean = false,
@@ -619,6 +637,8 @@ data class HomeInputs(
     val homeAnchor: TrackedDate? = null,
     val source: HomeInputSource,
     val now: LocalDateTime,
+    /** A data change's rebuild is in flight; Home holds what it shows until it lands. */
+    val isRebuilding: Boolean = false,
 )
 
 enum class HomeInputSource {
