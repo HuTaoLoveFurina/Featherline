@@ -2,6 +2,7 @@ package com.mkx.hrttracker.util
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -17,7 +18,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(minHoldMillis = 800L) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -54,7 +55,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(minHoldMillis = 800L, settled = "seed" to false) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, settled = "seed" to false) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -69,6 +70,43 @@ class HoldWhileUpdatingTest {
             listOf(
                 Triple("seed", true, 0L),
                 Triple("new", false, 800L),
+            ),
+            shown,
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun hiddenScreen_minHoldStartsWhenShown_andHiddenLandingReleasesAtOnce() = runTest {
+        val source = MutableSharedFlow<Pair<String, Boolean>>()
+        val visible = MutableStateFlow(false)
+        val shown = mutableListOf<Triple<String, Boolean, Long>>()
+        val job = launch {
+            source.holdWhileUpdating(visible, minHoldMillis = 400L, settled = "old" to false) { (_, updating) -> updating }
+                .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
+        }
+        runCurrent()
+
+        source.emit("fallback" to true) // hold starts while hidden
+        runCurrent()
+        advanceTimeBy(100L)
+        source.emit("new" to false) // lands while hidden: nobody saw the hold
+        runCurrent()
+        source.emit("fallback" to true) // a save from a pushed screen
+        runCurrent()
+        advanceTimeBy(200L)
+        visible.value = true // popped back at 300 ms: the minimum starts here
+        runCurrent()
+        advanceTimeBy(100L)
+        source.emit("next" to false) // lands at 400 ms, released at 700 ms
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                Triple("old", true, 0L),
+                Triple("new", false, 100L),
+                Triple("new", true, 100L),
+                Triple("next", false, 700L),
             ),
             shown,
         )

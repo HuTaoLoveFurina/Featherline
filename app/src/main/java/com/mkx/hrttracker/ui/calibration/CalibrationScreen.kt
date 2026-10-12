@@ -69,6 +69,7 @@ import androidx.constraintlayout.compose.Dimension
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mkx.hrttracker.R
 import com.mkx.hrttracker.model.bloodtest.BloodAnalyteKey
@@ -132,6 +133,10 @@ fun CalibrationScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val pkCalibrationState by viewModel.pkCalibrationState.collectAsStateWithLifecycle()
     val pkIntroSeen by viewModel.pkIntroSeen.collectAsStateWithLifecycle()
+    LifecycleStartEffect(viewModel) {
+        viewModel.setScreenVisible(true)
+        onStopOrDispose { viewModel.setScreenVisible(false) }
+    }
 
     // Hold the navigation lock while the delete-all runs. The confirm dialog
     // closes before the delete does, so without this a back press (this is a

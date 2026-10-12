@@ -47,6 +47,8 @@ class CalibrationViewModel @Inject constructor(
         CalibrationData(panels = cachedPanels, live = live, updating = false).takeIf { coherent }
     }
 
+    private val screenVisible = MutableStateFlow(false)
+
     // The lab list and the lab adjustment section change together: a lab
     // write holds both until its rebuild lands, so a new row never shows
     // beside a section that has not re-solved yet.
@@ -55,7 +57,7 @@ class CalibrationViewModel @Inject constructor(
         pkCalibrationLiveRepository.liveState,
         pkCalibrationLiveRepository.updating,
     ) { panels, live, updating -> CalibrationData(panels, live, updating) }
-        .holdWhileUpdating(settled = seedData) { data -> data.updating }
+        .holdWhileUpdating(screenVisible, settled = seedData) { data -> data.updating }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
@@ -124,6 +126,10 @@ class CalibrationViewModel @Inject constructor(
     val pkIntroSeen: StateFlow<Boolean?> = settingsRepository.pkCalibrationIntroSeen
         .map<Boolean, Boolean?> { it }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setScreenVisible(visible: Boolean) {
+        screenVisible.value = visible
+    }
 
     fun markPkIntroSeen() {
         viewModelScope.launch { settingsRepository.setPkCalibrationIntroSeen(true) }

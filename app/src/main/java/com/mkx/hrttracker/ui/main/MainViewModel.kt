@@ -79,6 +79,10 @@ class MainViewModel @Inject constructor(
         .map(::pkCalibrationSheetUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    // Home's own visibility: the activity collects uiState too, so its
+    // subscriber count does not say whether Home is on screen.
+    private val screenVisible = MutableStateFlow(false)
+
     private val _uiState = MutableStateFlow(
         MainUiState(
             homeDataReady = false,
@@ -141,7 +145,7 @@ class MainViewModel @Inject constructor(
         // change together (doses, curve, band, hero). The display unit, fold
         // state, notice, card layout and minute tick stay live through the hold.
         val heldInputsFlow = combine(
-            keyedInputsFlow.holdWhileUpdating { keyed -> keyed.inputs.isRebuilding },
+            keyedInputsFlow.holdWhileUpdating(screenVisible) { keyed -> keyed.inputs.isRebuilding },
             settingsRepository.settingsState,
         ) { held, settings -> held to settings.homeE2DisplayUnit }
         // The Home calibration presentation comes from the snapshot, so it is
@@ -226,6 +230,10 @@ class MainViewModel @Inject constructor(
     // non-null savedInstanceState, because a dead instance can never receive onNewIntent)
     // still parses the fresh intent and navigates.
     var launchIntentParsed = false
+
+    fun setScreenVisible(visible: Boolean) {
+        screenVisible.value = visible
+    }
 
     fun requestMilestonesDeepLink() {
         _milestonesDeepLinkSignal.update { it + 1 }
