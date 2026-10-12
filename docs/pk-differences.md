@@ -37,7 +37,8 @@ should read the upstream README and its `pk_research/` workspace.
   (`kClear`, `kClearInjection`), volume-of-distribution (`vdPerKg =
   2.0` for both hormones), gel/patch absorption rates, and the
   per-compound `k1Fast` / `k1Slow` / `k2` / formation fractions are
-  taken from upstream's anchored parameters. There are two exceptions.
+  taken from upstream's anchored parameters, except the EB, EC and EN
+  formation fractions described below. There are two more exceptions.
   **Estradiol undecylate (EU)** takes its depot parameters from
   [`Transmtf-HRT-Tracker`](https://github.com/TransmtfTeam/Transmtf-HRT-Tracker)
   (the "im-depot-v1" model), because the LaoZhong upstream has no EU
@@ -231,6 +232,17 @@ should read the upstream README and its `pk_research/` workspace.
   `0.0035`, which gives about 48–54 pg/mL. That is about 14% of the
   content delivered over 2 days. Patches labelled by release rate
   (µg/day) use the zero-order path instead.
+- **Benzoate, cypionate and enanthate injections deliver less E2.**
+  An injection's total E2 exposure, divided by the clearance the patch
+  labels support (`kClear = 0.41`, 2 L/kg), gives the share of the dose
+  that reached the blood. Upstream's formation fractions put that share
+  above 1 for EB (1.09), EC (1.17) and EN (1.20), which is impossible.
+  Estrannaise, TFS and GAHT Plotter give 0.68–0.93. Featherline lowers
+  EB from 0.109 to 0.08 and EC from 0.117 to 0.095. Both now match total
+  exposure in Oriowo 1980 (5 mg IM each, RIA). EB at 0.08 is 0.79× of
+  Oriowo and 1.14× of TFS. EN goes from 0.12 to 0.089, the three
+  references' average. No primary EN curve was checked. EV keeps
+  upstream's value; its exposure is within 8% of Oriowo and TFS.
 
 ## Route-scale estimate calibration
 

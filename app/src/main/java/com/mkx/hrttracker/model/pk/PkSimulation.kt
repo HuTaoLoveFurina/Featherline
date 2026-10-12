@@ -1326,11 +1326,14 @@ object PkCatalog {
         PkCompound.TU to TwoPartDepotParams(fracFast = 0.25, k1Fast = 0.008, k1Slow = 0.00145),
     )
 
+    // EB/EC/EN: upstream's values gave more E2 exposure than the dose contains at the clearance
+    // the patch labels support; lowered to Oriowo 1980 (EB, EC) and the Estrannaise/TFS/GAHT
+    // consensus (EN).
     private val formationFraction = mapOf(
-        PkCompound.EB to 0.10922376473734707,
+        PkCompound.EB to 0.08,
         PkCompound.EV to 0.062258288229969413,
-        PkCompound.EC to 0.117255838,
-        PkCompound.EN to 0.12,
+        PkCompound.EC to 0.095,
+        PkCompound.EN to 0.089,
         PkCompound.EU to 0.542,
         PkCompound.TC to 1.0,
         PkCompound.TE to 1.0,
