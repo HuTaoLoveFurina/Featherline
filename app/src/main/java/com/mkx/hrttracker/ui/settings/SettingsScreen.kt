@@ -1096,6 +1096,11 @@ internal fun SettingsScreenContent(
                     item {
                         SettingsSegmentedListItem(
                             title = stringResource(R.string.settings_personalization_calibration),
+                            supportingText = when (uiState.calibrationAdjusted) {
+                                true -> stringResource(R.string.calibration_pk_hero_adjusted)
+                                false -> stringResource(R.string.calibration_pk_hero_population)
+                                null -> null
+                            },
                             onClick = onCalibrationClick,
                             leadingContent = {
                                 SettingsLeadingIconSlot(
