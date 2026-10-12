@@ -149,6 +149,42 @@ class PkCalibrationLiveRepositoryTest {
     }
 
     @Test
+    fun forcedPromotionAfterPublication_isObservedByUpdating() = runTest {
+        stubEmptySourceReads()
+        val repository = repository(backgroundScope, StandardTestDispatcher(testScheduler))
+        val collector = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            repository.liveState.collect()
+        }
+        runCurrent()
+        val selfSolved = requireNotNull(repository.liveState.value?.live)
+        val forced = MutableStateFlow(false)
+        val build = HomeCalibrationBuild(
+            generation = 1L,
+            generatedAtEpochMillis = FixedNowMillis,
+            input = selfSolved.input,
+            evaluation = PkCalibrationEngine.evaluate(selfSolved.input),
+            statusRange = StatusRange,
+            forcedChanges = forced,
+        )
+        val updating = mutableListOf<Boolean>()
+        val updatingCollector = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            repository.updating.collect { updating += it }
+        }
+
+        // Published, then promoted by a forced joiner before the page has
+        // rendered it; no counter transition reaches this observer, only the
+        // build's flag. The page must report updating until its render lands.
+        builds.value = build
+        forced.value = true
+        runCurrent()
+
+        assertSame(build, repository.liveState.value?.build)
+        assertEquals(listOf(false, true, false), updating)
+        updatingCollector.cancel()
+        collector.cancel()
+    }
+
+    @Test
     fun newerBuild_cancelsAnOlderRead_andOnlyLatestStateSurvives() = runTest {
         val firstReadStarted = CompletableDeferred<Unit>()
         coEvery { bloodTests.getPanels() } coAnswers {

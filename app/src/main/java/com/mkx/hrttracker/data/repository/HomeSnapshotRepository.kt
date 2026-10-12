@@ -15,7 +15,6 @@ import com.mkx.hrttracker.model.pk.PkCalibrationLab
 import com.mkx.hrttracker.model.pk.PkPersonalParams
 import java.time.Instant
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToLong
 import com.mkx.hrttracker.data.local.DatabaseHolder
@@ -543,7 +542,7 @@ class HomeSnapshotRepository @Inject constructor(
                 )
                 // A forced joiner's hold waits on this build's write, so the
                 // write must count as forced for its record to be awaited.
-                if (force) inFlight.forced.set(true)
+                if (force) inFlight.forced.value = true
                 return@withLock inFlight.build
             }
             if (superseded) {
@@ -562,7 +561,9 @@ class HomeSnapshotRepository @Inject constructor(
                 force = force,
             ) ?: return@withLock null
             latestStartedRefreshSequence = sequence
-            val forced = AtomicBoolean(force)
+            // Observable: a joiner's promotion must reach the calibration
+            // page's readiness even if it misses the counter transition.
+            val forced = MutableStateFlow(force)
             // The build deliberately outlives its requester: a receiver's
             // timeout cancels only its await, and later requests join the
             // still-running build instead of starting another.
@@ -618,7 +619,7 @@ class HomeSnapshotRepository @Inject constructor(
         val zoneId: ZoneId,
         val option: HomeE2ChartWindowOption,
         val build: Deferred<Unit>,
-        val forced: AtomicBoolean,
+        val forced: MutableStateFlow<Boolean>,
     )
 
     private suspend fun refreshGenerationAfterSkipCheckLocked(
@@ -681,7 +682,7 @@ class HomeSnapshotRepository @Inject constructor(
         /** Request-order sequence; a build is dropped once a newer request has started one. */
         refreshSequence: Long,
         /** Shared with joiners: a forced request joining this build raises it. */
-        forced: AtomicBoolean,
+        forced: StateFlow<Boolean>,
         now: LocalDateTime,
         zoneId: ZoneId,
         option: HomeE2ChartWindowOption,
@@ -860,7 +861,7 @@ class HomeSnapshotRepository @Inject constructor(
                 input = calibrationInput,
                 evaluation = calibration,
                 statusRange = visibleChartRange,
-                forcedFlag = forced,
+                forcedChanges = forced,
             )
         )
         diagnosticsLogger.info(
@@ -1099,7 +1100,7 @@ class HomeSnapshotRepository @Inject constructor(
                     lastWriteState.value = HomeSnapshotWrite(
                         generation = refreshGeneration,
                         generatedAtEpochMillis = snapshotRecord.generatedAtEpochMillis,
-                        forced = forced.get(),
+                        forced = forced.value,
                     )
                     StartupTiming.mark("home_snapshot_rebuilt")
                     // Only a planned slot needs a timer; a window-end expiry is
@@ -1362,11 +1363,11 @@ class HomeCalibrationBuild(
     /** Home's visible chart window at build time: the range the badge describes. */
     val statusRange: LongRange,
     /** Shared with the build's write: a forced request joining after publication raises it. */
-    private val forcedFlag: AtomicBoolean = AtomicBoolean(false),
+    val forcedChanges: StateFlow<Boolean> = MutableStateFlow(false),
 ) {
     /** From a mutation or forced request: the builds whose landing shows the updating indicator. */
     val forced: Boolean
-        get() = forcedFlag.get()
+        get() = forcedChanges.value
 }
 
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 8

@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.withContext
@@ -102,15 +105,17 @@ class PkCalibrationLiveRepository @Inject constructor(
      * has rendered the build it published, so this stays true until the
      * rendered result is the newest build. Only a forced build counts, as on
      * Home: a launch, date-change or expiry build landing while the page is
-     * open re-renders without the indicator. [HomeCalibrationBuild.forced]
-     * reads the build's live flag, so a forced request joining after
-     * publication is seen here when its counter drops.
+     * open re-renders without the indicator. The build's forced flag is
+     * observed, so a forced request joining after publication promotes it
+     * here even if its brief counter transition is conflated away.
      */
     val updating: StateFlow<Boolean> = combine(
         homeSnapshotRepository.forcedRebuildInFlight,
-        homeSnapshotRepository.calibrationBuilds,
+        homeSnapshotRepository.calibrationBuilds.flatMapLatest { build ->
+            build?.forcedChanges?.map { forced -> build.takeIf { forced } } ?: flowOf(null)
+        },
         liveState,
-    ) { forced, build, live -> forced || (build != null && build.forced && live?.build !== build) }
+    ) { forced, forcedBuild, live -> forced || (forcedBuild != null && live?.build !== forcedBuild) }
         .stateIn(scope = appScope, started = SharingStarted.Eagerly, initialValue = false)
 
     /** Re-solves: a forced snapshot rebuild publishes a new build to render. */
