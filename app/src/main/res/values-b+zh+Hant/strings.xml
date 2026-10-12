@@ -611,8 +611,6 @@
     <string name="settings_reminders_notifications_unavailable">請在系統設定中開啟應用程式通知</string>
     <string name="settings_appearance">外觀</string>
     <string name="settings_app_language">應用程式語言</string>
-    <string name="settings_cjk_text_offset">調整中文文字顯示</string>
-    <string name="settings_cjk_text_offset_summary">如遇到文字對齊問題可嘗試調整此項</string>
     <string name="settings_first_day_of_week">每週第一天</string>
     <string name="settings_dark_mode">深色模式</string>
     <string name="settings_adaptive_color">自動調整配色</string>

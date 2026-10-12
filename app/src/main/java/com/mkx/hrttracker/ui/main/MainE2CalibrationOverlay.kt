@@ -37,7 +37,6 @@ import com.mkx.hrttracker.model.pk.PkPredictiveBandKnot
 import com.mkx.hrttracker.ui.calibration.PkCalibrationUiState
 import com.mkx.hrttracker.ui.calibration.pkCalibrationSmallShareRoutes
 import com.mkx.hrttracker.ui.calibration.applicationType
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 import com.mkx.hrttracker.ui.theme.desaturateHct
 import com.mkx.hrttracker.util.labelRes
@@ -310,7 +309,6 @@ internal fun MainPkCalibrationChartUnavailableCard(modifier: Modifier = Modifier
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.cjkTextOffset(title),
             )
             val body = stringResource(R.string.calibration_pk_chart_unavailable_body)
             Text(
@@ -318,8 +316,7 @@ internal fun MainPkCalibrationChartUnavailableCard(modifier: Modifier = Modifier
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
-                    .padding(top = 4.dp)
-                    .cjkTextOffset(body),
+                    .padding(top = 4.dp),
             )
         }
     }
@@ -378,8 +375,6 @@ internal fun MainPkCalibrationChartNote(pk: MainPkCalibrationUiState) {
                     text = pkBandLegendText,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.cjkTextOffset(pkBandLegendText)
-
                 )
             }
         }
@@ -405,7 +400,6 @@ private fun MainPkCalibrationNoteLine(text: String) {
             text = text,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.cjkTextOffset(text),
         )
     }
 }

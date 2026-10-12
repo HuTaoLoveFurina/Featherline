@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import com.mkx.hrttracker.R
 import com.mkx.hrttracker.ui.components.EditorSegmentedListItem
 import com.mkx.hrttracker.ui.components.HrtSection
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 
 internal data class PastScheduleSelectorUiState(
@@ -214,7 +213,6 @@ private fun PastScheduleOptionRow(
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Normal,
-            modifier = Modifier.cjkTextOffset(title)
         )
     }
 }
@@ -254,7 +252,6 @@ private fun PastScheduleLockedRow(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Normal,
-            modifier = Modifier.cjkTextOffset(text)
         )
     }
 }

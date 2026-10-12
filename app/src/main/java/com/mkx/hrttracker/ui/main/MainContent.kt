@@ -41,7 +41,6 @@ import com.mkx.hrttracker.ui.components.MedicalDisclaimerKind
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerSets
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerText
 import com.mkx.hrttracker.ui.components.appContentPaddingValues
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.journal.SimpleHomeCard
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 import com.mkx.hrttracker.util.LocalDateFormatter
@@ -359,7 +358,6 @@ private fun MainTimeZoneChangeNoticeBanner(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
                     .weight(1f)
-                    .cjkTextOffset(timeZoneChangeNoticeText)
             )
             CompositionLocalProvider(
                 LocalMinimumInteractiveComponentSize provides Dp.Unspecified,

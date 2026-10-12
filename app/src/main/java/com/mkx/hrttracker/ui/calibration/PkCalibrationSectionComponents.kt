@@ -46,7 +46,6 @@ import com.mkx.hrttracker.ui.components.EditorSegmentedListItem
 import com.mkx.hrttracker.ui.components.HrtFilledTonalButton
 import com.mkx.hrttracker.ui.components.HrtSection
 import com.mkx.hrttracker.ui.components.PreferenceSegmentedListItem
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.medication.medicationApplicationIconRes
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 import com.mkx.hrttracker.ui.theme.rememberMedicationGroupColorScheme
@@ -264,14 +263,12 @@ private fun PkCalibrationRouteSummaryCard(
                 Text(
                     text = title,
                     modifier = Modifier
-                        .weight(1f)
-                        .cjkTextOffset(title),
+                        .weight(1f),
                 )
                 Text(
                     text = trailingText,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.cjkTextOffset(trailingText),
                 )
                 PkCalibrationRowChevron()
             }
@@ -666,8 +663,7 @@ private fun PkCalibrationLabNote(
                 text = body,
                 style = bodyStyle,
                 modifier = Modifier
-                    .weight(1f)
-                    .cjkTextOffset(body),
+                    .weight(1f),
             )
         }
         Row(
@@ -704,8 +700,7 @@ internal fun PkCalibrationNoteRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
-                .weight(1f)
-                .cjkTextOffset(text),
+                .weight(1f),
         )
         action?.invoke()
     }

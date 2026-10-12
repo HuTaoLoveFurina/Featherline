@@ -61,7 +61,6 @@ import com.mkx.hrttracker.ui.components.HrtSection
 import com.mkx.hrttracker.ui.components.PreferenceSegmentedListItem
 import com.mkx.hrttracker.ui.components.MedicalDisclaimerKind
 import com.mkx.hrttracker.ui.medication.MedicationEditorSheetScaffold
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.hideBottomSheet
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 import com.mkx.hrttracker.util.labelRes
@@ -250,7 +249,6 @@ private fun PkCalibrationRouteCard(
                         text = name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Normal,
-                        modifier = Modifier.cjkTextOffset(name),
                     )
                     // "No lab signal" on every population row is noise under its own
                     // header; only a failed fit is worth calling out.
@@ -261,7 +259,6 @@ private fun PkCalibrationRouteCard(
                                 text = it,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.cjkTextOffset(it),
                             )
                         }
                 }

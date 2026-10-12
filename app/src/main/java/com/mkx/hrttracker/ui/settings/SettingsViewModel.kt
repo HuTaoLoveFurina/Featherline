@@ -194,12 +194,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setCjkTextOffsetEnabled(enabled: Boolean) {
-        launchSettingsMutation {
-            settingsRepository.setCjkTextOffsetEnabled(enabled)
-        }
-    }
-
     fun setHazeBlurEnabled(enabled: Boolean) {
         launchSettingsMutation {
             settingsRepository.setHazeBlurEnabled(enabled)

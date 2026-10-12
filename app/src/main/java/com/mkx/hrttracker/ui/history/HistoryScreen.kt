@@ -121,7 +121,6 @@ import com.mkx.hrttracker.ui.components.NavigationLockEffect
 import com.mkx.hrttracker.ui.components.SelectionFabScrollState
 import com.mkx.hrttracker.ui.components.SupportMessageListItem
 import com.mkx.hrttracker.ui.components.appContentPaddingValuesBehindTopAppBar
-import com.mkx.hrttracker.ui.components.cjkTextOffset
 import com.mkx.hrttracker.ui.components.paddingBehindTopAppBar
 import com.mkx.hrttracker.ui.components.pinnedTopAppBarScrollBehavior
 import com.mkx.hrttracker.ui.components.topAppBarScrollToTop
@@ -762,7 +761,6 @@ private fun HistoryScreenContent(
                             val title = stringResource(R.string.tab_history)
                             Text(
                                 text = title,
-                                modifier = Modifier.cjkTextOffset(title, amount = (-1.5).dp),
                             )
                         },
                         back = {
@@ -773,7 +771,6 @@ private fun HistoryScreenContent(
                             )
                             Text(
                                 text = title,
-                                modifier = Modifier.cjkTextOffset(title, amount = (-1.5).dp),
                             )
                         },
                     )
@@ -1445,7 +1442,6 @@ private fun HistoryCalendarLegendItem(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(start = dimensionResource(R.dimen.padding_xsmall))
-                .cjkTextOffset(label)
         )
     }
 }
@@ -1565,7 +1561,6 @@ private fun HistoryCalendarTitle(
                     onClick = { isMonthPickerVisible = true }
                 )
                 .padding(horizontal = 12.dp, vertical = 6.dp)
-                .cjkTextOffset(dateLabel)
         )
     }
 }
@@ -2108,7 +2103,6 @@ internal fun HistoryEntryGroupHeader(
                 },
                 modifier = Modifier
                     .alignByBaseline()
-                    .cjkTextOffset(label)
             )
             Text(
                 text = weekdayDisplayLabel,
@@ -2120,8 +2114,7 @@ internal fun HistoryEntryGroupHeader(
                 },
                 modifier = Modifier
                     .alignByBaseline()
-                    .padding(end = 1 .dp)
-                    .cjkTextOffset(weekdayDisplayLabel),
+                    .padding(end = 1 .dp),
             )
         }
         if (!countLabel.isNullOrBlank()) {
