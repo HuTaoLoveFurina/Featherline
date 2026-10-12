@@ -2102,7 +2102,7 @@ private fun launchFeedbackEmail(
 
 private const val FEEDBACK_EMAIL_URI = "mailto:support@asterismlabs.io"
 private const val MODEL_REPOSITORY_URL =
-    "https://github.com/LaoZhong-Mihari/HRT-Recorder-PKcomponent-Test"
+    "https://github.com/mkx173/Featherline/blob/main/docs/pk-differences.md"
 
 private const val APP_REPOSITORY_URL =
     "https://github.com/mkx173/Featherline"
