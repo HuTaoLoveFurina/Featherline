@@ -252,6 +252,9 @@ fun SettingsScreen(
         viewModel.settingsMutationEvents.collect { event ->
             when (event) {
                 is SettingsMutationEvent.Failure -> {
+                    // A pending enable whose write failed must not keep the
+                    // reminders switch drawn on.
+                    isReminderEnablePending = false
                     Toast.makeText(
                         latestContext,
                         latestContext.getString(R.string.settings_update_failed),

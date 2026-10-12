@@ -401,22 +401,40 @@ class HomeSnapshotRepository @Inject constructor(
         return null
     }
 
+    /**
+     * [force] bypasses the skip-check so the snapshot is rebuilt even when the
+     * stored one looks usable. [silent] keeps a forced rebuild out of
+     * [forcedRebuildInFlight] and off the builds' forced flag: system events
+     * (boot, clock / zone change, package update, the midnight alarm) rebuild
+     * in the background and must not show the updating indicator the way a
+     * mutation does.
+     */
     fun refreshHomeSnapshotAsync(
         now: LocalDateTime = LocalDateTime.now(),
         force: Boolean = false,
         zoneId: ZoneId = ZoneId.systemDefault(),
+        silent: Boolean = false,
     ) {
-        diagnosticsLogger.info(TAG, "home_snapshot_refresh_async_enqueued force=$force now=$now")
+        diagnosticsLogger.info(
+            TAG,
+            "home_snapshot_refresh_async_enqueued force=$force silent=$silent now=$now"
+        )
+        val indicated = force && !silent
         activeRefreshes.update { count -> count + 1 }
-        if (force) activeForcedRefreshes.update { count -> count + 1 }
-        launchCountedRefresh(now = now, force = force, zoneId = zoneId)
+        if (indicated) activeForcedRefreshes.update { count -> count + 1 }
+        launchCountedRefresh(now = now, force = force, zoneId = zoneId, indicated = indicated)
     }
 
     /**
      * Runs a refresh in the app scope; the caller has already counted it in
-     * [activeRefreshes] (and, when forced, in [activeForcedRefreshes]).
+     * [activeRefreshes] (and, when [indicated], in [activeForcedRefreshes]).
      */
-    private fun launchCountedRefresh(now: LocalDateTime, force: Boolean, zoneId: ZoneId) {
+    private fun launchCountedRefresh(
+        now: LocalDateTime,
+        force: Boolean,
+        zoneId: ZoneId,
+        indicated: Boolean = force,
+    ) {
         // Reserve the request's place in line synchronously: the launched
         // coroutine may reach the refresh mutex after a later request's.
         val sequence = refreshRequestSequence.incrementAndGet()
@@ -427,6 +445,7 @@ class HomeSnapshotRepository @Inject constructor(
                     force = force,
                     zoneId = zoneId,
                     sequence = sequence,
+                    indicated = indicated,
                 )
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) {
@@ -439,7 +458,7 @@ class HomeSnapshotRepository @Inject constructor(
                 )
             } finally {
                 activeRefreshes.update { count -> count - 1 }
-                if (force) activeForcedRefreshes.update { count -> count - 1 }
+                if (indicated) activeForcedRefreshes.update { count -> count - 1 }
             }
         }
     }
@@ -476,10 +495,12 @@ class HomeSnapshotRepository @Inject constructor(
         }
     }
 
+    /** See [refreshHomeSnapshotAsync] for [force] and [silent]. */
     suspend fun refreshHomeSnapshotIfNeeded(
         now: LocalDateTime = LocalDateTime.now(),
         force: Boolean = false,
         zoneId: ZoneId = ZoneId.systemDefault(),
+        silent: Boolean = false,
     ) {
         // Reserved before the first suspension so the sequence is request order.
         refreshHomeSnapshotIfNeeded(
@@ -487,6 +508,7 @@ class HomeSnapshotRepository @Inject constructor(
             force = force,
             zoneId = zoneId,
             sequence = refreshRequestSequence.incrementAndGet(),
+            indicated = force && !silent,
         )
     }
 
@@ -495,6 +517,8 @@ class HomeSnapshotRepository @Inject constructor(
         force: Boolean,
         zoneId: ZoneId,
         sequence: Long,
+        /** Whether this request's build shows the updating indicator. */
+        indicated: Boolean,
     ) {
         diagnosticsLogger.info(TAG, "home_snapshot_refresh_start force=$force now=$now")
         // Suspends on first call until the observer has captured the raw
@@ -542,7 +566,7 @@ class HomeSnapshotRepository @Inject constructor(
                 )
                 // A forced joiner's hold waits on this build's write, so the
                 // write must count as forced for its record to be awaited.
-                if (force) inFlight.forced.value = true
+                if (indicated) inFlight.forced.value = true
                 return@withLock inFlight.build
             }
             if (superseded) {
@@ -563,7 +587,7 @@ class HomeSnapshotRepository @Inject constructor(
             latestStartedRefreshSequence = sequence
             // Observable: a joiner's promotion must reach the calibration
             // page's readiness even if it misses the counter transition.
-            val forced = MutableStateFlow(force)
+            val forced = MutableStateFlow(indicated)
             // The build deliberately outlives its requester: a receiver's
             // timeout cancels only its await, and later requests join the
             // still-running build instead of starting another.

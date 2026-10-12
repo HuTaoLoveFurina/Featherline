@@ -801,6 +801,13 @@ class HomeSnapshotRepositoryTest {
         repository.refreshHomeSnapshotAsync(force = false)
         assertTrue(repository.rebuildInFlight.first())
         assertFalse(repository.forcedRebuildInFlight.first())
+        appScheduler.advanceUntilIdle()
+
+        // A system event's forced rebuild is silent: it rebuilds past the
+        // skip-check but shows no updating indicator either.
+        repository.refreshHomeSnapshotAsync(force = true, silent = true)
+        assertTrue(repository.rebuildInFlight.first())
+        assertFalse(repository.forcedRebuildInFlight.first())
     }
 
     @Test

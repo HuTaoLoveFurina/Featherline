@@ -12,8 +12,9 @@ import com.mkx.hrttracker.data.importer.ExternalImportPreview
 import com.mkx.hrttracker.data.importer.ExternalImportService
 import com.mkx.hrttracker.data.importer.ExternalTrackerSourceApp
 import com.mkx.hrttracker.data.repository.BloodTestRepository
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
+import com.mkx.hrttracker.data.repository.HomePkCalibrationRecord
+import com.mkx.hrttracker.data.repository.HomeSnapshotRecord
+import com.mkx.hrttracker.data.repository.HomeSnapshotRepository
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.data.repository.UserProfileRepository
 import com.mkx.hrttracker.model.personalization.WeightUnit
@@ -65,8 +66,8 @@ class SettingsViewModelTest {
     private val settingsRepository: SettingsRepository = mockk()
     private val userProfileRepository: UserProfileRepository = mockk()
     private val bloodTestRepository: BloodTestRepository = mockk()
-    private val pkCalibrationLiveRepository: PkCalibrationLiveRepository = mockk {
-        every { liveState } returns MutableStateFlow(null)
+    private val homeSnapshotRepository: HomeSnapshotRepository = mockk {
+        every { observeHomeSnapshot() } returns flowOf(null)
     }
     private val appLockSecurityManager: AppLockSecurityManager = mockk(relaxed = true)
     private val medicationReminderScheduler: MedicationReminderScheduler = mockk(relaxed = true)
@@ -545,13 +546,31 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun uiState_seedsCalibrationFromLiveStateBeforeCombineRuns() {
-        every { pkCalibrationLiveRepository.liveState } returns
-            MutableStateFlow(PkCalibrationLiveResult(null))
+    fun uiState_calibrationFollowsTheHomeSnapshotRecord() = runTest {
+        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(
+            HomeSnapshotRecord(
+                schemaVersion = 1,
+                generatedAtEpochMillis = 0L,
+                anchorDateEpochDay = 0L,
+                zoneId = "UTC",
+                pkProjection = null,
+                activeGroups = emptyList(),
+                scheduleEntries = emptyList(),
+                antiandrogenHistoryEntries = emptyList(),
+                pkCalibration = HomePkCalibrationRecord(
+                    adjusted = true,
+                    limitedConfidence = false,
+                    renderUnavailable = false,
+                    bandUnavailable = false,
+                    effectiveRoutes = emptyList(),
+                ),
+            )
+        )
 
         val viewModel = createViewModel()
+        advanceUntilIdle()
 
-        assertEquals(false, viewModel.uiState.value.calibrationAdjusted)
+        assertEquals(true, viewModel.uiState.value.calibrationAdjusted)
     }
 
     @Test
@@ -578,7 +597,7 @@ class SettingsViewModelTest {
             externalImportService = externalImportService,
             diagnosticsExportService = diagnosticsExportService,
             widgetAppearanceRepository = widgetAppearanceRepository,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            homeSnapshotRepository = homeSnapshotRepository,
         )
     }
 

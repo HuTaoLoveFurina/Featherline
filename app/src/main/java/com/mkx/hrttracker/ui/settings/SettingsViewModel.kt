@@ -13,8 +13,7 @@ import com.mkx.hrttracker.data.importer.ExternalImportCommitResult
 import com.mkx.hrttracker.data.importer.ExternalImportPreview
 import com.mkx.hrttracker.data.importer.ExternalImportService
 import com.mkx.hrttracker.data.repository.BloodTestRepository
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
+import com.mkx.hrttracker.data.repository.HomeSnapshotRepository
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.data.repository.UserProfileRepository
 import com.mkx.hrttracker.model.personalization.UserProfile
@@ -26,7 +25,6 @@ import com.mkx.hrttracker.model.settings.FirstDayOfWeekOption
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.reminder.MedicationReminderScheduler
 import com.mkx.hrttracker.reminder.MedicationReminderSnoozeScheduler
-import com.mkx.hrttracker.ui.main.pkCalibrationSheetUiState
 import com.mkx.hrttracker.ui.security.AuthenticationPromptRequest
 import com.mkx.hrttracker.util.AppDiagnosticsExportService
 import com.mkx.hrttracker.util.AppDiagnosticsExportedFile
@@ -40,6 +38,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -67,7 +69,7 @@ class SettingsViewModel @Inject constructor(
     private val externalImportService: ExternalImportService,
     private val diagnosticsExportService: AppDiagnosticsExportService,
     private val widgetAppearanceRepository: WidgetAppearanceRepository,
-    pkCalibrationLiveRepository: PkCalibrationLiveRepository,
+    homeSnapshotRepository: HomeSnapshotRepository,
 ) : ViewModel() {
     private val pendingPrompt = MutableStateFlow<AuthenticationPromptRequest?>(null)
 
@@ -117,7 +119,14 @@ class SettingsViewModel @Inject constructor(
         isBackupRestoreInProgress,
         isExternalImportInProgress,
         isWeightMutationInProgress,
-        pkCalibrationLiveRepository.liveState,
+        // The same basis Home's hero title names, from the snapshot it is
+        // built with, so the calibration row never lags the hero. A mutation
+        // clears the snapshot until its rebuild lands; the last record holds.
+        homeSnapshotRepository.observeHomeSnapshot()
+            .mapNotNull { snapshot -> snapshot }
+            .map { snapshot -> snapshot.pkCalibration?.adjusted }
+            .distinctUntilChanged()
+            .onStart { emit(null) },
     ) { values ->
         val settingsState = values[0] as SettingsState
         val profile = values[1] as UserProfile?
@@ -130,7 +139,7 @@ class SettingsViewModel @Inject constructor(
         val restoreInProgress = values[8] as Boolean
         val externalImportInProgress = values[9] as Boolean
         val weightInProgress = values[10] as Boolean
-        val pkCalibrationLive = values[11] as PkCalibrationLiveResult?
+        val calibrationAdjusted = values[11] as Boolean?
         SettingsUiState(
             settingsState = settingsState,
             userProfile = profile ?: UserProfile(),
@@ -143,18 +152,12 @@ class SettingsViewModel @Inject constructor(
             isBackupRestoreInProgress = restoreInProgress,
             isExternalImportInProgress = externalImportInProgress,
             isWeightMutationInProgress = weightInProgress,
-            calibrationAdjusted = pkCalibrationSheetUiState(pkCalibrationLive)?.adjusted,
+            calibrationAdjusted = calibrationAdjusted,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
-        // Seeded with the live calibration (evaluated at app start) so the
-        // calibration row has its support text on the first frame.
-        initialValue = SettingsUiState(
-            calibrationAdjusted = pkCalibrationSheetUiState(
-                pkCalibrationLiveRepository.liveState.value
-            )?.adjusted,
-        )
+        initialValue = SettingsUiState(),
     )
 
     init {
@@ -681,7 +684,7 @@ data class SettingsUiState(
     val isBackupRestoreInProgress: Boolean = false,
     val isExternalImportInProgress: Boolean = false,
     val isWeightMutationInProgress: Boolean = false,
-    /** The calibration page's basis: null until the first live evaluation finishes. */
+    /** The basis Home's hero title names: null until a snapshot with a calibration record exists. */
     val calibrationAdjusted: Boolean? = null,
 )
 
