@@ -102,7 +102,9 @@ class PkCalibrationLiveRepository @Inject constructor(
      * has rendered the build it published, so this stays true until the
      * rendered result is the newest build. Only a forced build counts, as on
      * Home: a launch, date-change or expiry build landing while the page is
-     * open re-renders without the indicator.
+     * open re-renders without the indicator. [HomeCalibrationBuild.forced]
+     * reads the build's live flag, so a forced request joining after
+     * publication is seen here when its counter drops.
      */
     val updating: StateFlow<Boolean> = combine(
         homeSnapshotRepository.forcedRebuildInFlight,

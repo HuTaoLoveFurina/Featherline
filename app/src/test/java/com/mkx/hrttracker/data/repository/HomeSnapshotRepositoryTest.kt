@@ -392,9 +392,11 @@ class HomeSnapshotRepositoryTest {
         launch.join()
         retry.join()
 
-        // One build, joined by the forced request: Home waits on its record.
+        // One build, joined by the forced request: Home waits on its record
+        // and the calibration page on its render, whenever the join happened.
         assertEquals(1, builds.get())
         assertEquals(true, repository.lastWrite.value?.forced)
+        assertEquals(true, repository.calibrationBuilds.value?.forced)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

@@ -860,7 +860,7 @@ class HomeSnapshotRepository @Inject constructor(
                 input = calibrationInput,
                 evaluation = calibration,
                 statusRange = visibleChartRange,
-                forced = forced.get(),
+                forcedFlag = forced,
             )
         )
         diagnosticsLogger.info(
@@ -1361,9 +1361,13 @@ class HomeCalibrationBuild(
     val evaluation: PkCalibrationEvaluation?,
     /** Home's visible chart window at build time: the range the badge describes. */
     val statusRange: LongRange,
+    /** Shared with the build's write: a forced request joining after publication raises it. */
+    private val forcedFlag: AtomicBoolean = AtomicBoolean(false),
+) {
     /** From a mutation or forced request: the builds whose landing shows the updating indicator. */
-    val forced: Boolean = false,
-)
+    val forced: Boolean
+        get() = forcedFlag.get()
+}
 
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 8
 
