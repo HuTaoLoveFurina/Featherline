@@ -220,6 +220,17 @@ should read the upstream README and its `pk_research/` workspace.
   expects it to work like sublingual E2 at equal E2 content. In
   Düsterberg 1985, EV given into a vein was fully split into E2 within
   30 minutes.
+- **Patches entered by total content are fitted to Estrana tape.** A
+  patch logged by the drug it contains, with no release rate, is modeled
+  as first-order absorption at `patchFallbackK1`. Upstream's `0.0075`
+  has no stated source. Estrana tape is the only common patch labelled
+  by total content. Its Japanese package insert reports that 0.72 mg
+  worn 48 h holds 52.0–53.8 pg/mL from 8–12 h until removal, and
+  52.5–60.5 pg/mL at 48 h on repeated use, in postmenopausal women. At
+  `0.0075` the model gave 85–111 pg/mL at 55 kg. Featherline uses
+  `0.0035`, which gives about 48–54 pg/mL. That is about 14% of the
+  content delivered over 2 days. Patches labelled by release rate
+  (µg/day) use the zero-order path instead.
 
 ## Route-scale estimate calibration
 

@@ -118,6 +118,10 @@ class PkSimulationTest {
         assertTrue(oneHour in 120.0..450.0)
         assertTrue(requireNotNull(sublingual.concentrationAt(4.0)) / oneHour in 0.1..0.25)
 
+        // Estrana tape 0.72 mg (total-content entry): ~52-60 pg/mL in ~55 kg women, ~41 at 70 kg.
+        val estrana = simulate(PkRoute.PATCH_APPLY, 0.72, days = 1, listOf(0.0, 24.0))
+        assertTrue(requireNotNull(estrana.concentrationAt(24.0)) in 35.0..55.0)
+
         // EV tracks E2 at equal E2 content on both routes.
         for (route in listOf(PkRoute.ORAL, PkRoute.SUBLINGUAL)) {
             val times = listOf(1.0, 6.0, 30.0)

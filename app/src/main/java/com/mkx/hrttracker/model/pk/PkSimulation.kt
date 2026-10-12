@@ -1280,7 +1280,9 @@ object PkCatalog {
             kClear = 0.41,
             kClearInjection = 0.041,
             depotK1Correction = 1.0,
-            patchFallbackK1 = 0.0075,
+            // Total-content patches are in practice Estrana tape: 0.72 mg worn 48 h holds ~52-60
+            // pg/mL in postmenopausal women (JP insert), i.e. ~14% of the content delivered.
+            patchFallbackK1 = 0.0035,
             gelK1 = 0.022,
             gelFMax = 0.06,
         ),
