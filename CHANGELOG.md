@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Home-screen widgets placed before 1.4.0 no longer grow after the update. The widget content scale is lowered once to match the size the widget had before. If you already lowered the scale on 1.4.0-pre, check it again.
 - Chinese text no longer sits below the icon next to it, and text fields no longer jump when a Chinese character follows Latin text. This affected phones whose Latin and Chinese system fonts differ (Pixel, Samsung); phones whose system font covers both, such as Xiaomi with MiSans, are unchanged. The "Adjust Chinese text display" setting is gone, since it is no longer needed.
 - Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its prediction interval describe the same fit.
 - When every logged estradiol dose is more than 180 days older than your earliest estradiol result, calibration now reports those results as below the modeled signal instead of saying no dose has been logged.
