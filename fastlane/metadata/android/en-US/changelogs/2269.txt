@@ -1,5 +1,0 @@
-- New estimate calibration: tune the estradiol estimate to your own blood test results, route by route, with a confidence level for each route and a prediction interval on the Home chart
-- New small widget and home-screen shortcuts for Journal dates, plus 100-day milestones
-- More catalog medications, including Finasteride, Dutasteride, Raloxifene, Tamoxifen, GnRH agonists, and estradiol undecylate
-- Traditional Chinese and Cantonese translations
-- Widget improvements and bug fixes
