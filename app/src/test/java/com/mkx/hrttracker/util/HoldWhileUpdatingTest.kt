@@ -22,7 +22,7 @@ class HoldWhileUpdatingTest {
         }
         runCurrent()
 
-        source.emit("startup" to true) // nothing settled yet: passes through
+        source.emit("startup" to true) // nothing settled yet: dropped, consumer keeps loading
         runCurrent()
         source.emit("old" to false)
         runCurrent()
@@ -38,12 +38,37 @@ class HoldWhileUpdatingTest {
 
         assertEquals(
             listOf(
-                Triple("startup", true, 0L),
                 Triple("old", false, 0L),
                 Triple("old", true, 0L),
                 Triple("old", true, 0L),
                 Triple("new", false, 800L),
                 Triple("next", false, 800L),
+            ),
+            shown,
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun seededHold_showsSeedWhileFirstUpdateLands() = runTest {
+        val source = MutableSharedFlow<Pair<String, Boolean>>()
+        val shown = mutableListOf<Triple<String, Boolean, Long>>()
+        val job = launch {
+            source.holdWhileUpdating(minHoldMillis = 800L, settled = "seed" to false) { (_, updating) -> updating }
+                .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
+        }
+        runCurrent()
+
+        source.emit("fallback" to true) // held on the seed, not passed through
+        runCurrent()
+        advanceTimeBy(100L)
+        source.emit("new" to false)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                Triple("seed", true, 0L),
+                Triple("new", false, 800L),
             ),
             shown,
         )

@@ -17,7 +17,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,8 +33,15 @@ data class PkCalibrationLive(
     val render: PkCalibrationRenderResult?,
 )
 
-/** One finished evaluation pass. [live] is null after a failed read or when the inputs cannot form an evaluation. */
-class PkCalibrationLiveResult(val live: PkCalibrationLive?)
+/**
+ * One finished evaluation pass. [live] is null after a failed read or when the
+ * inputs cannot form an evaluation. [build] is the snapshot build it rendered,
+ * null for the page's own evaluation before the first build.
+ */
+class PkCalibrationLiveResult(
+    val live: PkCalibrationLive?,
+    val build: HomeCalibrationBuild? = null,
+)
 
 @Singleton
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -68,14 +74,16 @@ class PkCalibrationLiveRepository @Inject constructor(
     ) { build, _ -> build }
         .transformLatest { build ->
             try {
-                emit(PkCalibrationLiveResult(if (build != null) render(build) else evaluate()))
+                emit(PkCalibrationLiveResult(if (build != null) render(build) else evaluate(), build))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (exception: Exception) {
                 // Surfaced as the numeric-failure row with Try again; the log
                 // is the only trace of why.
                 diagnosticsLogger.warning(TAG, "pk_calibration_live_failed", exception)
-                emit(PkCalibrationLiveResult(null))
+                // With the build it was for: the failure row (and Try again)
+                // must replace the held section, not stay behind it.
+                emit(PkCalibrationLiveResult(null, build))
             }
         }
         .stateIn(
@@ -90,9 +98,18 @@ class PkCalibrationLiveRepository @Inject constructor(
     /**
      * True while a dose, lab or other data change is being re-solved; the
      * calibration page holds its list and section until the rebuild lands.
+     * The rebuild's counter drops when its write returns, before [liveState]
+     * has rendered the build it published, so this stays true until the
+     * rendered result is the newest build. Only a forced build counts, as on
+     * Home: a launch, date-change or expiry build landing while the page is
+     * open re-renders without the indicator.
      */
-    val updating: Flow<Boolean>
-        get() = homeSnapshotRepository.forcedRebuildInFlight
+    val updating: StateFlow<Boolean> = combine(
+        homeSnapshotRepository.forcedRebuildInFlight,
+        homeSnapshotRepository.calibrationBuilds,
+        liveState,
+    ) { forced, build, live -> forced || (build != null && build.forced && live?.build !== build) }
+        .stateIn(scope = appScope, started = SharingStarted.Eagerly, initialValue = false)
 
     /** Re-solves: a forced snapshot rebuild publishes a new build to render. */
     fun retry() {

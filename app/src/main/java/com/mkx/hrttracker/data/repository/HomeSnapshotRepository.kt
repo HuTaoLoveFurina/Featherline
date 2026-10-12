@@ -15,6 +15,7 @@ import com.mkx.hrttracker.model.pk.PkCalibrationLab
 import com.mkx.hrttracker.model.pk.PkPersonalParams
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToLong
 import com.mkx.hrttracker.data.local.DatabaseHolder
@@ -108,42 +109,17 @@ class HomeSnapshotRepository @Inject constructor(
         get() = activeForcedRefreshes.map { count -> count > 0 }.distinctUntilChanged()
     private val activeForcedRefreshes = MutableStateFlow(0)
 
-    init {
-        // Observe option changes (not the initial value) and force a rebuild
-        // when the user toggles 7-day/30-day. The first emission is the
-        // persisted value at process start, not a user change, so it is
-        // ignored. Refresh and validation paths resolve the option directly
-        // from settingsRepository.homeE2ChartWindowOptionFlow at use-time;
-        // they do not depend on this observer having run first.
-        appScope.launch {
-            var previous: HomeE2ChartWindowOption? = null
-            settingsRepository.homeE2ChartWindowOptionFlow.collect { option ->
-                val old = previous
-                previous = option
-                if (old != null && old != option) {
-                    diagnosticsLogger.info(
-                        TAG,
-                        "home_snapshot_option_changed previous=$old current=$option"
-                    )
-                    // Best-effort: appScope has no exception handler, so a DataStore failure
-                    // during invalidation must not tear down this long-lived collector.
-                    runCatching {
-                        invalidateHomeSnapshot()
-                        refreshHomeSnapshotAsync(force = true)
-                    }.onFailure { throwable ->
-                        if (throwable is CancellationException) {
-                            throw throwable
-                        }
-                        diagnosticsLogger.warning(
-                            TAG,
-                            "home_snapshot_option_change_refresh_failed previous=$old current=$option",
-                            throwable
-                        )
-                    }
-                }
-            }
-        }
-    }
+    /**
+     * The snapshot this process wrote last, while it is still the stored one.
+     * The counters drop when a write returns, which can be before the record
+     * reaches a consumer, so a consumer whose observed record is not this
+     * write is still waiting on the rebuild. Null once a generation bump makes
+     * it obsolete: a failed rebuild then releases instead of waiting on a
+     * record that never comes.
+     */
+    val lastWrite: StateFlow<HomeSnapshotWrite?>
+        get() = lastWriteState
+    private val lastWriteState = MutableStateFlow<HomeSnapshotWrite?>(null)
 
     fun observeHomeSnapshot(): Flow<HomeSnapshotRecord?> {
         return combine(
@@ -220,6 +196,9 @@ class HomeSnapshotRepository @Inject constructor(
                 activeRefreshes.update { count -> count + 1 }
                 activeForcedRefreshes.update { count -> count + 1 }
                 generation = homeSnapshotGenerationStore.incrementGeneration()
+                // Obsolete with the bump, whether or not the clear below
+                // succeeds: observers reject its record from here on.
+                lastWriteState.value = null
                 diagnosticsLogger.info(
                     TAG,
                     "home_data_mutation_generation_incremented generation=$generation"
@@ -466,9 +445,28 @@ class HomeSnapshotRepository @Inject constructor(
         }
     }
 
+    /**
+     * [invalidateHomeSnapshot] followed by a forced rebuild, counted before
+     * the generation bump like a mutation, so Home never sees the cleared
+     * snapshot without knowing a rebuild is coming.
+     */
+    suspend fun invalidateAndRebuildHomeSnapshot() {
+        activeRefreshes.update { count -> count + 1 }
+        activeForcedRefreshes.update { count -> count + 1 }
+        try {
+            invalidateHomeSnapshot()
+        } catch (throwable: Throwable) {
+            activeRefreshes.update { count -> count - 1 }
+            activeForcedRefreshes.update { count -> count - 1 }
+            throw throwable
+        }
+        launchCountedRefresh(now = LocalDateTime.now(), force = true, zoneId = ZoneId.systemDefault())
+    }
+
     suspend fun invalidateHomeSnapshot() {
         diagnosticsLogger.info(TAG, "home_snapshot_invalidate_start")
         val generation = homeSnapshotGenerationStore.incrementGeneration()
+        lastWriteState.value = null
         diagnosticsLogger.info(
             TAG,
             "home_snapshot_invalidate_generation_incremented generation=$generation"
@@ -543,6 +541,9 @@ class HomeSnapshotRepository @Inject constructor(
                     "home_snapshot_refresh_joined_in_flight generation=$generation " +
                             "force=$force now=$now superseded=$superseded"
                 )
+                // A forced joiner's hold waits on this build's write, so the
+                // write must count as forced for its record to be awaited.
+                if (force) inFlight.forced.set(true)
                 return@withLock inFlight.build
             }
             if (superseded) {
@@ -561,6 +562,7 @@ class HomeSnapshotRepository @Inject constructor(
                 force = force,
             ) ?: return@withLock null
             latestStartedRefreshSequence = sequence
+            val forced = AtomicBoolean(force)
             // The build deliberately outlives its requester: a receiver's
             // timeout cancels only its await, and later requests join the
             // still-running build instead of starting another.
@@ -571,6 +573,7 @@ class HomeSnapshotRepository @Inject constructor(
                     buildAndWriteHomeSnapshot(
                         refreshGeneration = refreshGeneration,
                         refreshSequence = sequence,
+                        forced = forced,
                         now = now,
                         zoneId = zoneId,
                         option = option,
@@ -592,6 +595,7 @@ class HomeSnapshotRepository @Inject constructor(
                     zoneId = zoneId,
                     option = option,
                     build = started,
+                    forced = forced,
                 )
             }
         } ?: return
@@ -614,6 +618,7 @@ class HomeSnapshotRepository @Inject constructor(
         val zoneId: ZoneId,
         val option: HomeE2ChartWindowOption,
         val build: Deferred<Unit>,
+        val forced: AtomicBoolean,
     )
 
     private suspend fun refreshGenerationAfterSkipCheckLocked(
@@ -675,6 +680,8 @@ class HomeSnapshotRepository @Inject constructor(
         refreshGeneration: Long,
         /** Request-order sequence; a build is dropped once a newer request has started one. */
         refreshSequence: Long,
+        /** Shared with joiners: a forced request joining this build raises it. */
+        forced: AtomicBoolean,
         now: LocalDateTime,
         zoneId: ZoneId,
         option: HomeE2ChartWindowOption,
@@ -853,6 +860,7 @@ class HomeSnapshotRepository @Inject constructor(
                 input = calibrationInput,
                 evaluation = calibration,
                 statusRange = visibleChartRange,
+                forced = forced.get(),
             )
         )
         diagnosticsLogger.info(
@@ -1088,6 +1096,11 @@ class HomeSnapshotRepository @Inject constructor(
                                 "bandKnots=${bandKnots.size} pkEntries=${inputs.pkEntries.size}"
                     )
                     homeSnapshotStore.writeSnapshot(snapshotRecord)
+                    lastWriteState.value = HomeSnapshotWrite(
+                        generation = refreshGeneration,
+                        generatedAtEpochMillis = snapshotRecord.generatedAtEpochMillis,
+                        forced = forced.get(),
+                    )
                     StartupTiming.mark("home_snapshot_rebuilt")
                     // Only a planned slot needs a timer; a window-end expiry is
                     // days out and the date-change refresh gets there first.
@@ -1328,6 +1341,19 @@ private fun HomeSnapshotRecord.diagnosticSummary(): String {
 }
 
 /** One snapshot build's calibration solve. [evaluation] is null when the solve threw. */
+/** Identity of a written snapshot; [matches] tells a consumer whether it has observed it yet. */
+data class HomeSnapshotWrite(
+    val generation: Long,
+    val generatedAtEpochMillis: Long,
+    /** From a mutation or forced request: the rebuilds that show the updating indicator. */
+    val forced: Boolean,
+) {
+    fun matches(record: HomeSnapshotRecord?): Boolean =
+        record != null &&
+            record.generation == generation &&
+            record.generatedAtEpochMillis == generatedAtEpochMillis
+}
+
 class HomeCalibrationBuild(
     val generation: Long,
     val generatedAtEpochMillis: Long,
@@ -1335,6 +1361,8 @@ class HomeCalibrationBuild(
     val evaluation: PkCalibrationEvaluation?,
     /** Home's visible chart window at build time: the range the badge describes. */
     val statusRange: LongRange,
+    /** From a mutation or forced request: the builds whose landing shows the updating indicator. */
+    val forced: Boolean = false,
 )
 
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 8

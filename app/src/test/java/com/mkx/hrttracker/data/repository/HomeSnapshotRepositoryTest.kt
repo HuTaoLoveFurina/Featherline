@@ -193,40 +193,6 @@ class HomeSnapshotRepositoryTest {
         coVerify(exactly = 1) { homeSnapshotStore.clearSnapshot() }
     }
 
-    // The chart-window observer runs on appScope, which has no exception handler. A DataStore
-    // failure during invalidation must be best-effort: swallowed, not allowed to tear down the
-    // long-lived collector — otherwise later option changes would silently stop refreshing.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    @Test
-    fun optionChangeObserver_survivesInvalidationFailure() = runTest {
-        var clearCalls = 0
-        coEvery { homeSnapshotStore.clearSnapshot() } coAnswers {
-            clearCalls += 1
-            if (clearCalls == 1) throw IOException("simulated DataStore failure")
-        }
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        HomeSnapshotRepository(
-            databaseHolder = databaseHolder,
-            homeSnapshotStore = homeSnapshotStore,
-            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
-            settingsRepository = settingsRepository,
-            appScope = CoroutineScope(dispatcher),
-            defaultDispatcher = dispatcher,
-        )
-        // The initial SEVEN_DAYS emission is the baseline and is ignored.
-        advanceUntilIdle()
-
-        // First toggle: the observer's invalidate throws, but it is swallowed (best-effort).
-        chartWindowOptionState.value = HomeE2ChartWindowOption.THIRTY_DAYS
-        advanceUntilIdle()
-
-        // Second toggle: only reaches clearSnapshot again if the collector survived the failure.
-        chartWindowOptionState.value = HomeE2ChartWindowOption.SEVEN_DAYS
-        advanceUntilIdle()
-
-        coVerify(exactly = 2) { homeSnapshotStore.clearSnapshot() }
-    }
-
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun runHomeDataMutation_rebuildContainsUpdatedDisplayNameForEveryGroupSlot() = runTest {
@@ -402,6 +368,37 @@ class HomeSnapshotRepositoryTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun forcedRequestJoiningABuild_marksItsWriteForced() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val builds = stubSlowEmptyRefreshInputs()
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher + SupervisorJob()),
+            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
+            diagnosticsLogger = diagnosticsLogger,
+        )
+        val now = LocalDateTime.of(2026, 5, 7, 10, 0)
+
+        val launch = launch(dispatcher) {
+            repository.refreshHomeSnapshotIfNeeded(now = now, force = false)
+        }
+        runCurrent() // the launch request passes the skip-check and starts its build
+        val retry = launch(dispatcher) {
+            repository.refreshHomeSnapshotIfNeeded(now = now, force = true)
+        }
+        launch.join()
+        retry.join()
+
+        // One build, joined by the forced request: Home waits on its record.
+        assertEquals(1, builds.get())
+        assertEquals(true, repository.lastWrite.value?.forced)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun olderRequestReachingTheMutexLast_isSupersededByTheNewerBuild() = runTest {
         // The sequence must follow request order, not the order coroutines
         // reach the refresh mutex: a pre-midnight request whose coroutine is
@@ -409,14 +406,14 @@ class HomeSnapshotRepositoryTest {
         // suppress the midnight build and write yesterday's snapshot.
         val dispatcher = StandardTestDispatcher(testScheduler)
         val builds = stubSlowEmptyRefreshInputs()
-        // The option flow is the first suspension before the mutex. Call 0 is
-        // the repository's own option-change collector; call 1 (the first
-        // request) is held back so the second request reaches the mutex first.
+        // The option flow is the first suspension before the mutex. Call 0
+        // (the first request) is held back so the second request reaches the
+        // mutex first.
         var optionFlowReads = 0
         every { settingsRepository.homeE2ChartWindowOptionFlow } answers {
             val read = optionFlowReads++
             flow {
-                if (read == 1) delay(50)
+                if (read == 0) delay(50)
                 emit(HomeE2ChartWindowOption.SEVEN_DAYS)
             }
         }
@@ -777,6 +774,7 @@ class HomeSnapshotRepositoryTest {
         // holds the skeleton rather than flashing a population curve.
         assertTrue(repository.rebuildInFlight.first())
         assertTrue(repository.forcedRebuildInFlight.first())
+        assertNull(repository.lastWrite.value)
         awaitRebuild(appScheduler) { written }
         // The in-flight count drops once the refresh coroutine unwinds.
         appScheduler.advanceUntilIdle()
@@ -784,10 +782,49 @@ class HomeSnapshotRepositoryTest {
         coVerify(exactly = 1) { homeSnapshotStore.writeSnapshot(any()) }
         assertFalse(repository.rebuildInFlight.first())
         assertFalse(repository.forcedRebuildInFlight.first())
+        // Consumers compare their observed snapshot against this: the counters
+        // can drop before the written record reaches them.
+        val lastWrite = requireNotNull(repository.lastWrite.value)
+        assertEquals(generationState.value, lastWrite.generation)
+        assertTrue(lastWrite.forced)
+        // The calibration page waits on forced builds the same way.
+        assertEquals(true, repository.calibrationBuilds.value?.forced)
+        // The next generation bump drops it even when the clear fails, so a
+        // failed rebuild is not waited on.
+        coEvery { homeSnapshotStore.clearSnapshot() } throws IOException("simulated DataStore failure")
+        runCatching { repository.invalidateHomeSnapshot() }
+        assertNull(repository.lastWrite.value)
 
         // Home's launch request is not a forced rebuild: no updating indicator.
         repository.refreshHomeSnapshotAsync(force = false)
         assertTrue(repository.rebuildInFlight.first())
+        assertFalse(repository.forcedRebuildInFlight.first())
+    }
+
+    @Test
+    fun invalidateAndRebuildHomeSnapshot_countsBeforeGenerationBump() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher),
+            defaultDispatcher = dispatcher,
+        )
+        var forcedAtClear: Boolean? = null
+        coEvery { homeSnapshotStore.clearSnapshot() } coAnswers {
+            forcedAtClear = repository.forcedRebuildInFlight.first()
+        }
+        coEvery { databaseHolder.awaitOpen() } coAnswers { throw IOException("stop at inputs") }
+
+        repository.invalidateAndRebuildHomeSnapshot()
+
+        // The generation bump makes observers reject the stored snapshot, so
+        // the rebuild is counted before it (no uncounted population frame).
+        assertEquals(true, forcedAtClear)
+        assertEquals(1L, generationState.value)
+        advanceUntilIdle()
         assertFalse(repository.forcedRebuildInFlight.first())
     }
 

@@ -193,6 +193,7 @@ class PkCalibrationLiveRepositoryTest {
         defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     ): PkCalibrationLiveRepository {
         every { homeSnapshots.calibrationBuilds } returns builds
+        every { homeSnapshots.forcedRebuildInFlight } returns MutableStateFlow(false)
         coEvery { homeSnapshots.visibleChartRange(any(), any()) } returns StatusRange
         return PkCalibrationLiveRepository(
             bloodTestRepository = bloodTests,

@@ -293,32 +293,34 @@ class BackupRestoreService @Inject constructor(
                     database.userProfileDao().upsertProfile(profile)
                 }
             }
-        }
 
-        settingsRepository.restoreSettings(
-            darkModeOption = validatedSnapshot.settings.darkModeOption,
-            adaptiveColorEnabled = validatedSnapshot.settings.adaptiveColorEnabled,
-            pureBlackEnabled = validatedSnapshot.settings.pureBlackEnabled,
-            hazeBlurEnabled = validatedSnapshot.settings.hazeBlurEnabled,
-            remindersEnabled = validatedSnapshot.settings.remindersEnabled,
-            showArchivedGroupRecords = validatedSnapshot.settings.showArchivedGroupRecords,
-            hideReferenceRanges = validatedSnapshot.settings.hideReferenceRanges,
-            appLockGracePeriodOption = validatedSnapshot.settings.appLockGracePeriodOption,
-            hideScreenContentEnabled = validatedSnapshot.settings.hideScreenContentEnabled,
-            onboardingCompleted = validatedSnapshot.settings.onboardingCompleted,
-            pkCalibrationIntroSeen = validatedSnapshot.settings.pkCalibrationIntroSeen,
-            appLanguageOption = validatedSnapshot.settings.appLanguageOption,
-            calibrationDefaultUnits = validatedSnapshot.settings.calibrationDefaultUnits,
-            homeE2DisplayUnit = validatedSnapshot.settings.homeE2DisplayUnit,
-            homeE2ChartWindowOption = validatedSnapshot.settings.homeE2ChartWindowOption,
-            lastSeenTimeZoneId = validatedSnapshot.settings.lastSeenTimeZoneId,
-            hideMedicationDetails = validatedSnapshot.settings.hideMedicationDetails,
-            groupNameCounter = validatedSnapshot.settings.groupNameCounter,
-            firstDayOfWeekOption = validatedSnapshot.settings.firstDayOfWeekOption,
-            stockNudgeEnabled = validatedSnapshot.settings.stockNudgeEnabled,
-            stockNudgeUserEnabled = validatedSnapshot.settings.stockNudgeUserEnabled,
-            homeCardLayout = validatedSnapshot.settings.homeCardLayout,
-        )
+            // Inside the mutation so its rebuild reads the restored chart
+            // window option; nothing else rebuilds on an option write.
+            settingsRepository.restoreSettings(
+                darkModeOption = validatedSnapshot.settings.darkModeOption,
+                adaptiveColorEnabled = validatedSnapshot.settings.adaptiveColorEnabled,
+                pureBlackEnabled = validatedSnapshot.settings.pureBlackEnabled,
+                hazeBlurEnabled = validatedSnapshot.settings.hazeBlurEnabled,
+                remindersEnabled = validatedSnapshot.settings.remindersEnabled,
+                showArchivedGroupRecords = validatedSnapshot.settings.showArchivedGroupRecords,
+                hideReferenceRanges = validatedSnapshot.settings.hideReferenceRanges,
+                appLockGracePeriodOption = validatedSnapshot.settings.appLockGracePeriodOption,
+                hideScreenContentEnabled = validatedSnapshot.settings.hideScreenContentEnabled,
+                onboardingCompleted = validatedSnapshot.settings.onboardingCompleted,
+                pkCalibrationIntroSeen = validatedSnapshot.settings.pkCalibrationIntroSeen,
+                appLanguageOption = validatedSnapshot.settings.appLanguageOption,
+                calibrationDefaultUnits = validatedSnapshot.settings.calibrationDefaultUnits,
+                homeE2DisplayUnit = validatedSnapshot.settings.homeE2DisplayUnit,
+                homeE2ChartWindowOption = validatedSnapshot.settings.homeE2ChartWindowOption,
+                lastSeenTimeZoneId = validatedSnapshot.settings.lastSeenTimeZoneId,
+                hideMedicationDetails = validatedSnapshot.settings.hideMedicationDetails,
+                groupNameCounter = validatedSnapshot.settings.groupNameCounter,
+                firstDayOfWeekOption = validatedSnapshot.settings.firstDayOfWeekOption,
+                stockNudgeEnabled = validatedSnapshot.settings.stockNudgeEnabled,
+                stockNudgeUserEnabled = validatedSnapshot.settings.stockNudgeUserEnabled,
+                homeCardLayout = validatedSnapshot.settings.homeCardLayout,
+            )
+        }
 
         // Restore REPLACES the default appearance wholesale, including hue, saturation
         // and balance from the backup (or Defaults via the legacy mirror for

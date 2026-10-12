@@ -207,8 +207,9 @@ class HomeRepository @Inject constructor(
             nowFlow,
             homeSnapshotRepository.rebuildInFlight,
             homeSnapshotRepository.forcedRebuildInFlight,
-        ) { now, rebuildInFlight, forcedRebuildInFlight ->
-            Triple(now, rebuildInFlight, forcedRebuildInFlight)
+            homeSnapshotRepository.lastWrite,
+        ) { now, rebuildInFlight, forcedRebuildInFlight, lastWrite ->
+            HomeRebuildSignals(now, rebuildInFlight, forcedRebuildInFlight, lastWrite)
         }
         // A rebuild clears the stored snapshot for a fraction of a second
         // (about 200 ms on a release build). Through that gap the PK fields
@@ -223,11 +224,22 @@ class HomeRepository @Inject constructor(
             settingsRepository.homeE2ChartWindowOptionFlow,
             stockAndAnchorInputsFlow,
             nowAndRebuildFlow,
-        ) { inputs, snapshot, option, stockAndAnchorInputs, (now, rebuildInFlight, forcedRebuildInFlight) ->
+        ) { inputs, snapshot, option, stockAndAnchorInputs, signals ->
             suppressInconsistentHomeEmission("room_inputs") {
                 if (inputs.settings.homeE2ChartWindowOption != option) {
                     null
                 } else {
+                    val now = signals.now
+                    // The counters drop when the build's write returns, which
+                    // can be before this combine has the written record: the
+                    // rebuild has not landed here until the observed snapshot
+                    // is that write. A clear nulls the write, so a failed
+                    // rebuild releases to the fallback instead of waiting.
+                    val lastWrite = signals.lastWrite
+                    val writePending = lastWrite != null && !lastWrite.matches(snapshot)
+                    val rebuildInFlight = signals.rebuildInFlight || writePending
+                    val forcedRebuildInFlight =
+                        signals.forcedRebuildInFlight || (writePending && lastWrite.forced)
                     val nowInstant = now.atZone(zoneId).toInstant()
                     val pkHorizon = date
                         .plusDays(option.projectionFutureDays())
@@ -526,12 +538,11 @@ class HomeRepository @Inject constructor(
     /**
      * A data change like any other: counted as a rebuild from before the
      * write, so Home holds its chart instead of drawing the population
-     * fallback until the option observer's rebuild is counted.
+     * fallback, and the mutation's rebuild reads the new option. This is the
+     * only in-app writer of the option; restore writes it inside its own
+     * mutation.
      */
     suspend fun setHomeE2ChartWindowOption(option: HomeE2ChartWindowOption) {
-        // ponytail: the option observer rebuilds again and this mutation's build
-        // is dropped at write; skip the observer for this path if the double
-        // solve ever shows.
         homeSnapshotRepository.runHomeDataMutation {
             settingsRepository.setHomeE2ChartWindowOption(option)
         }
@@ -607,6 +618,13 @@ data class HomeStartupInputs(
     val estradiolPkEntries: List<MedicationLogEntry>,
     val estradiolPkPlannedEntries: List<MedicationLogEntry> = emptyList(),
     val latestEstradiolEntry: MedicationLogEntry?,
+)
+
+private data class HomeRebuildSignals(
+    val now: LocalDateTime,
+    val rebuildInFlight: Boolean,
+    val forcedRebuildInFlight: Boolean,
+    val lastWrite: HomeSnapshotWrite?,
 )
 
 data class HomeInputs(

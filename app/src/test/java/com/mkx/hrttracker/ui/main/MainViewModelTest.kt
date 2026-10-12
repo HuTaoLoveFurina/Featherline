@@ -93,6 +93,7 @@ class MainViewModelTest {
         coEvery { settingsRepository.setHomeLowStockSectionFoldState(any(), any()) } returns Unit
         coEvery { settingsRepository.clearHomeLowStockAcknowledgedWarningStates() } returns Unit
         every { settingsRepository.homeCardLayoutFlow } returns MutableStateFlow(HomeCardLayout())
+        every { settingsRepository.settingsState } returns MutableStateFlow(SettingsState())
         coEvery { settingsRepository.setHomeCardLayout(any(), any()) } returns Unit
     }
 
@@ -687,13 +688,17 @@ class MainViewModelTest {
     }
 
     @Test
-    fun homeE2DisplayUnit_usesHomePreferenceFromInputs() = runTest {
+    fun homeE2DisplayUnit_usesLiveHomePreference() = runTest {
         val appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 12, 0))
+        // The unit is read live from settings, not from the held inputs, so a
+        // unit switch is not frozen while a rebuild's hold is in effect.
+        every { settingsRepository.settingsState } returns MutableStateFlow(
+            SettingsState(homeE2DisplayUnit = BloodUnitKey.NG_DL)
+        )
         every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(
             homeInputs(
                 settings = SettingsState(
                     calibrationDefaultUnits = mapOf(BloodAnalyteKey.E2 to BloodUnitKey.PMOL_L),
-                    homeE2DisplayUnit = BloodUnitKey.NG_DL,
                 ),
             )
         )

@@ -57,6 +57,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -92,6 +93,7 @@ class HomeRepositoryTest {
         every { homeDao.observeArchivedGroups() } returns flowOf(emptyList())
         every { homeSnapshotRepository.rebuildInFlight } returns flowOf(false)
         every { homeSnapshotRepository.forcedRebuildInFlight } returns flowOf(false)
+        every { homeSnapshotRepository.lastWrite } returns MutableStateFlow(null)
         every { medicineRepository.observeAllActiveTracked() } returns flowOf(emptyList())
         every {
             medicationLogRepository.observeScheduledEntriesInWindow(any(), any())
@@ -756,6 +758,8 @@ class HomeRepositoryTest {
         )
         val snapshotFlow = MutableStateFlow<HomeSnapshotRecord?>(snapshot)
         val rebuildFlow = MutableStateFlow(false)
+        val lastWriteFlow = MutableStateFlow<HomeSnapshotWrite?>(null)
+        every { homeSnapshotRepository.lastWrite } returns lastWriteFlow
 
         every { databaseHolder.get() } returns database
         every { database.homeDao() } returns homeDao
@@ -808,6 +812,23 @@ class HomeRepositoryTest {
         val afterRebuild = emissions.receive()
         assertNull(afterRebuild.pkProjection)
         assertNull(afterRebuild.pkCalibration)
+        assertFalse(afterRebuild.isRebuilding)
+
+        // A write whose record has not reached this collector yet: still
+        // rebuilding (and updating, as the write was forced) until it does.
+        val rewritten = snapshot.copy(generatedAtEpochMillis = snapshot.generatedAtEpochMillis + 1L)
+        every { homeSnapshotRepository.isSnapshotUsable(rewritten, any(), any(), any()) } returns true
+        lastWriteFlow.value = HomeSnapshotWrite(
+            generation = rewritten.generation,
+            generatedAtEpochMillis = rewritten.generatedAtEpochMillis,
+            forced = true,
+        )
+        val pending = emissions.receive()
+        assertTrue(pending.isRebuilding)
+        snapshotFlow.value = rewritten
+        val landed = emissions.receive()
+        assertFalse(landed.isRebuilding)
+        assertEquals(decodedProjection, landed.pkProjection)
         emissions.cancel()
     }
 

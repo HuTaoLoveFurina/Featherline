@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -954,6 +955,13 @@ internal fun MainE2ChartCard(
     val chartCoordinateMapper = remember(chartViewportResetVersion.intValue) {
         MainE2ChartCoordinateMapper()
     }
+    // The mapper is recreated on return to Home and publishes nothing until
+    // the chart lays out (and Vico restores the scroll maximum only then), so
+    // the minimap keeps the last viewport it reported and draws from it until
+    // live measurements arrive: without it the box and date labels snap to the
+    // full window for those frames and back. One state object for the card's
+    // lifetime (gesture lambdas capture it); a reset clears its value.
+    val lastMinimapViewport = rememberSaveable { mutableStateOf<DoubleArray?>(null) }
     val interactiveMarkerXHoursValue = interactiveMarkerXHours.value
     // The touch marker's x is captured in whatever coord space was active
     // when the user tapped, so it has no meaningful position after the
@@ -1084,9 +1092,12 @@ internal fun MainE2ChartCard(
     }
     // Hoisted up so maxChartZoom can recompute against the measured plot
     // width once .onSizeChanged fires; rememberVicoZoomState is keyed on
-    // option + width so the floor reflects the live form factor.
-    val chartSize = remember { mutableStateOf(IntSize.Zero) }
-    val measuredChartWidthPx = chartSize.value.width
+    // option + width so the floor reflects the live form factor. Saved so the
+    // key is stable on return to Home: a width of 0 on the first frame back
+    // would restore the unzoomed state saved under that key before the
+    // measured key restores the user's zoom.
+    val chartWidthPx = rememberSaveable { mutableIntStateOf(0) }
+    val measuredChartWidthPx = chartWidthPx.intValue
     val maxChartZoom = remember(section.chartWindowOption, measuredChartWidthPx) {
         Zoom.max(
             Zoom.Content,
@@ -1331,7 +1342,7 @@ internal fun MainE2ChartCard(
                                 .fillMaxWidth()
                                 .height(MainE2ChartPlotHeight)
                                 .padding(MainE2ChartContentPadding)
-                                .onSizeChanged { chartSize.value = it }
+                                .onSizeChanged { chartWidthPx.intValue = it.width }
                                 .pointerInput(chartCoordinateMapper, chartWindowHours) {
                                     detectMainE2ChartMarkerGestures(
                                         coordinateMapper = chartCoordinateMapper,
@@ -1546,7 +1557,7 @@ internal fun MainE2ChartCard(
                                         val labelWidth = markerLabelSize.value.width
                                         val labelHeight = markerLabelSize.value.height
                                         val maxXOffset =
-                                            (chartSize.value.width - labelWidth).coerceAtLeast(0)
+                                            (measuredChartWidthPx - labelWidth).coerceAtLeast(0)
                                         IntOffset(
                                             x = (markerCanvasX.roundToInt() - labelWidth / 2)
                                                 .coerceIn(0, maxXOffset),
@@ -1579,9 +1590,11 @@ internal fun MainE2ChartCard(
                     chartWindowHours = chartWindowHours,
                     maxY = yAxisSpec.maxY,
                     coordinateMapper = chartCoordinateMapper,
+                    lastViewport = lastMinimapViewport,
                     scrollState = chartScrollState,
                     zoomState = chartZoomState,
                     onReset = {
+                        lastMinimapViewport.value = null
                         chartViewportResetVersion.intValue += 1
                     },
                     onViewportScrollFractionChanged = { scrollFraction ->
@@ -1805,6 +1818,8 @@ private fun MainE2ChartMinimap(
     chartWindowHours: Int,
     maxY: Double,
     coordinateMapper: MainE2ChartCoordinateMapper,
+    /** [rawStart, rawEnd, start, end, chartWindowHours] of the last reported viewport. */
+    lastViewport: MutableState<DoubleArray?>,
     scrollState: VicoScrollState,
     zoomState: VicoZoomState,
     onReset: () -> Unit,
@@ -1847,13 +1862,24 @@ private fun MainE2ChartMinimap(
     val pendingResetDateLabelRange = remember(chartWindowHours) {
         mutableStateOf<MainE2ChartVisibleXRange?>(null)
     }
-    val rawVisibleRange = viewportSnapshot
-        ?.takeIf { snapshotMatchesLiveWindow }
-        ?.rawVisibleRange
+    val liveViewport = viewportSnapshot?.takeIf { snapshotMatchesLiveWindow }
+    LaunchedEffect(liveViewport) {
+        if (liveViewport != null) {
+            lastViewport.value = doubleArrayOf(
+                liveViewport.rawVisibleRange.start,
+                liveViewport.rawVisibleRange.endInclusive,
+                liveViewport.visibleRange.start,
+                liveViewport.visibleRange.endInclusive,
+                chartWindowHours.toDouble(),
+            )
+        }
+    }
+    val savedViewport = lastViewport.value?.takeIf { it[4].toInt() == chartWindowHours }
+    val rawVisibleRange = liveViewport?.rawVisibleRange
+        ?: savedViewport?.let { MainE2ChartVisibleXRange(it[0], it[1]) }
         ?: MainE2ChartVisibleXRange(0.0, fullHours)
-    val visibleRange = viewportSnapshot
-        ?.takeIf { snapshotMatchesLiveWindow }
-        ?.visibleRange
+    val visibleRange = liveViewport?.visibleRange
+        ?: savedViewport?.let { MainE2ChartVisibleXRange(it[2], it[3]) }
         ?: MainE2ChartVisibleXRange(0.0, fullHours)
     val pendingResetRange = pendingResetDateLabelRange.value
     LaunchedEffect(visibleRange, pendingResetRange) {
@@ -1910,6 +1936,15 @@ private fun MainE2ChartMinimap(
 
     fun viewportMetrics(canvasWidth: Float): Pair<Float, Float> {
         val plotWidth = (canvasWidth - minimapHorizontalInsetPx * 2).coerceAtLeast(1f)
+        // Before the first draw after a return the scroll maximum is still 0;
+        // the saved range is the geometry until the live one arrives.
+        if (scrollState.maxValue <= 0f && liveViewport == null && savedViewport != null) {
+            val leftFraction = (rawVisibleRange.start.coerceIn(0.0, fullHours) / fullHours).toFloat()
+            val rightFraction =
+                (rawVisibleRange.endInclusive.coerceIn(0.0, fullHours) / fullHours).toFloat()
+            return minimapHorizontalInsetPx + leftFraction * plotWidth to
+                    ((rightFraction - leftFraction) * plotWidth).coerceIn(0f, plotWidth)
+        }
         val visibleSpan = (rawVisibleRange.endInclusive - rawVisibleRange.start)
             .coerceIn(0.0, fullHours)
         val rawViewportWidth = (visibleSpan / fullHours).toFloat() * plotWidth
@@ -1990,7 +2025,18 @@ private fun MainE2ChartMinimap(
                                         (size.width.toFloat() - minimapHorizontalInsetPx * 2)
                                             .coerceAtLeast(1f)
                                     val maxScroll = scrollState.maxValue
-                                    if (maxScroll <= 0f) return 0f to plotWidth
+                                    if (maxScroll <= 0f) {
+                                        // Not drawn yet: the saved range (see
+                                        // lastMinimapViewport) or the full window.
+                                        val saved = lastViewport.value
+                                            ?.takeIf { it[4].toInt() == chartWindowHours }
+                                            ?: return 0f to plotWidth
+                                        val left = (saved[0] / fullHours).toFloat()
+                                            .coerceIn(0f, 1f) * plotWidth
+                                        val width = ((saved[1] - saved[0]) / fullHours).toFloat()
+                                            .coerceIn(0f, 1f) * plotWidth
+                                        return left to width.coerceAtMost(plotWidth - left)
+                                    }
                                     val visibleRange = coordinateMapper.rawVisibleXRange()
                                         ?: MainE2ChartVisibleXRange(0.0, fullHours)
                                     val visibleSpan =

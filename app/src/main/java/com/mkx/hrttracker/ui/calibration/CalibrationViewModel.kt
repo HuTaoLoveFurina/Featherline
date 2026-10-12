@@ -6,6 +6,7 @@ import com.mkx.hrttracker.data.repository.BloodTestRepository
 import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
 import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
 import com.mkx.hrttracker.data.repository.SettingsRepository
+import com.mkx.hrttracker.data.repository.toPkCalibrationLabs
 import com.mkx.hrttracker.model.bloodtest.BloodTestPanel
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.util.Held
@@ -33,6 +34,19 @@ class CalibrationViewModel @Inject constructor(
         MutableStateFlow<CalibrationDeleteAllEntriesResult?>(null)
     private val cachedPanels = bloodTestRepository.getCachedPanels()
 
+    // Seeded from the cached values so the section is in the first frame,
+    // and held when a rebuild is already in flight on entry. The two caches
+    // are independent: after a lab delete the panel cache is already updated
+    // while the solve is not, so the pair is seeded only when it is coherent
+    // (nothing in flight, or the solve used exactly the cached labs). Else the
+    // page stays loading until the first settled value.
+    private val seedData: CalibrationData? = run {
+        val live = pkCalibrationLiveRepository.liveState.value
+        val coherent = !pkCalibrationLiveRepository.updating.value ||
+            live?.live?.input?.labs == cachedPanels?.toPkCalibrationLabs()
+        CalibrationData(panels = cachedPanels, live = live, updating = false).takeIf { coherent }
+    }
+
     // The lab list and the lab adjustment section change together: a lab
     // write holds both until its rebuild lands, so a new row never shows
     // beside a section that has not re-solved yet.
@@ -41,16 +55,12 @@ class CalibrationViewModel @Inject constructor(
         pkCalibrationLiveRepository.liveState,
         pkCalibrationLiveRepository.updating,
     ) { panels, live, updating -> CalibrationData(panels, live, updating) }
-        .holdWhileUpdating { data -> data.updating }
+        .holdWhileUpdating(settled = seedData) { data -> data.updating }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
             initialValue = Held(
-                CalibrationData(
-                    panels = cachedPanels,
-                    live = pkCalibrationLiveRepository.liveState.value,
-                    updating = false,
-                ),
+                seedData ?: CalibrationData(panels = null, live = null, updating = true),
                 isUpdating = false,
             ),
         )

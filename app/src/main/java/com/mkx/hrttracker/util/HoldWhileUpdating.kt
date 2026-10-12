@@ -20,21 +20,23 @@ const val UPDATING_MIN_HOLD_MILLIS = 800L
  * snapshot's fallback, a section that has re-solved while the list has not)
  * never show, and the content changes together with the indicator leaving.
  *
- * Before anything has settled there is nothing to hold, so values pass
- * through, still flagged as updating.
+ * [settled] is what the consumer already shows, so a rebuild in flight when
+ * collection starts holds that instead of passing intermediate values
+ * through. Without one there is nothing to hold, so updating values are
+ * dropped and the consumer keeps its loading state until the first settled
+ * value.
  */
 fun <T : Any> Flow<T>.holdWhileUpdating(
     minHoldMillis: Long = UPDATING_MIN_HOLD_MILLIS,
+    settled: T? = null,
     isUpdating: (T) -> Boolean,
 ): Flow<Held<T>> = channelFlow {
-    var settled: T? = null
+    var settled: T? = settled
     var minHold: Job? = null
     collectLatest { value ->
         val shown = settled
         if (isUpdating(value)) {
-            if (shown == null) {
-                send(Held(value, isUpdating = true))
-            } else {
+            if (shown != null) {
                 if (minHold == null) minHold = launch { delay(minHoldMillis) }
                 send(Held(shown, isUpdating = true))
             }
