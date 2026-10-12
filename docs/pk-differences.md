@@ -196,8 +196,20 @@ should read the upstream README and its `pk_research/` workspace.
   the 1 mg sublingual peak near 550 pg/mL. Featherline uses θ = 0.03,
   which gives 154 pg/mL at 1.2 h; Doll 2022 measured about 144 at
   1–2 h. Total exposure is 1.7× oral (Price 1997 measured about 2.5×).
-  The swallowed part now goes through the refit oral path. Oral
-  estradiol valerate keeps upstream's values.
+  For sublingual E2, the swallowed part now goes through the refit oral
+  path. Oral estradiol valerate (EV) keeps upstream's values.
+- **Sublingual EV shares the E2 θ.** The resolver uses one θ for both
+  compounds, so the change above also lowers sublingual EV. At 70 kg,
+  a 2 mg EV dose (1.53 mg of E2) now peaks at 68 pg/mL at 5.9 h; with
+  θ = 0.11 the peak was 168. No study has measured sublingual EV levels
+  over time. TFS's
+  [review](https://transfemscience.org/articles/sublingual-ev/) expects
+  it to work like sublingual E2 at equal E2 content. Total exposure from
+  sublingual EV is 0.8× that of sublingual E2 at equal E2 content with
+  θ = 0.03; with 0.11 it was 1.9×. EV peaks later because its
+  mouth-absorbed part reuses the injection hydrolysis rate
+  (`hydrolysisK2[EV] = 0.07`). That rate has not been checked against
+  sublingual data either.
 
 ## Route-scale estimate calibration
 
