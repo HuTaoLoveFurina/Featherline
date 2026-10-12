@@ -204,7 +204,15 @@ class HomeSnapshotRepository @Inject constructor(
                 // skeleton.
                 activeRefreshes.update { count -> count + 1 }
                 activeForcedRefreshes.update { count -> count + 1 }
-                generation = homeSnapshotGenerationStore.incrementGeneration()
+                generation = try {
+                    homeSnapshotGenerationStore.incrementGeneration()
+                } catch (throwable: Throwable) {
+                    // No block ran and no refresh will be launched to drop
+                    // these, so Home would show updating forever.
+                    activeRefreshes.update { count -> count - 1 }
+                    activeForcedRefreshes.update { count -> count - 1 }
+                    throw throwable
+                }
                 // Obsolete with the bump, whether or not the clear below
                 // succeeds: observers reject its record from here on.
                 lastWriteState.value = null

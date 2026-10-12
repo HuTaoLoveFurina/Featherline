@@ -712,6 +712,30 @@ class HomeSnapshotRepositoryTest {
         assertEquals(listOf("write", "clear"), events)
     }
 
+    @Test
+    fun runHomeDataMutation_releasesRebuildCountWhenGenerationBumpThrows() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        coEvery { homeSnapshotGenerationStore.incrementGeneration() } throws IOException("bump failed")
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher),
+            defaultDispatcher = dispatcher,
+        )
+        var blockRan = false
+
+        val failure = runCatching {
+            repository.runHomeDataMutation { blockRan = true }
+        }.exceptionOrNull()
+
+        assertTrue(failure is IOException)
+        assertFalse(blockRan)
+        assertFalse(repository.rebuildInFlight.first())
+        assertFalse(repository.forcedRebuildInFlight.first())
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun runHomeDataMutation_rebuildsAfterMutationCommit() = runTest {

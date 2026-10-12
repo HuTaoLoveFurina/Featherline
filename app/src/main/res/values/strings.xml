@@ -1157,7 +1157,7 @@
     <string name="calibration_pk_edu_does_routes_title">Calibrates each route separately</string>
     <string name="calibration_pk_edu_does_routes_body">Each result calibrates only the routes active when the blood was drawn.</string>
     <string name="calibration_pk_edu_does_band_title">Shows a likely range</string>
-    <string name="calibration_pk_edu_does_band_body">The shaded band is the prediction interval for lab results.</string>
+    <string name="calibration_pk_edu_does_band_body">The shaded band is where your next blood test result would likely fall. It includes lab error and blood draw timing variation, and isn’t a confidence interval.</string>
     <string name="calibration_pk_edu_doesnt_verify_title">Assess HPG axis suppression</string>
     <string name="calibration_pk_edu_doesnt_verify_body">It doesn’t look at FSH, LH, or testosterone.</string>
     <string name="calibration_pk_edu_doesnt_learn_title">Learn your absorption</string>

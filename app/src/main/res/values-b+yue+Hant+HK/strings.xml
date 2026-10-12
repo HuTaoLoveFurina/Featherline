@@ -1083,7 +1083,7 @@
     <string name="calibration_pk_edu_does_routes_title">分開校準每個給藥途徑</string>
     <string name="calibration_pk_edu_does_routes_body">每個結果只會校準抽血嗰陣有效嘅途徑</string>
     <string name="calibration_pk_edu_does_band_title">顯示可能嘅範圍</string>
-    <string name="calibration_pk_edu_does_band_body">陰影代表抽血結果嘅預測區間</string>
+    <string name="calibration_pk_edu_does_band_body">陰影係下次抽血結果可能落喺嘅範圍，佢包含咗化驗誤差同抽血時間嘅波動，唔係置信區間</string>
     <string name="calibration_pk_edu_doesnt_verify_title">判斷HPG軸嘅抑制情況</string>
     <string name="calibration_pk_edu_doesnt_verify_body">唔會參考 FSH、LH 或者睪酮</string>
     <string name="calibration_pk_edu_doesnt_learn_title">了解你嘅吸收情況</string>
