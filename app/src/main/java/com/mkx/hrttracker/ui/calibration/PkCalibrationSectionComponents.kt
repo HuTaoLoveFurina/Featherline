@@ -68,8 +68,6 @@ fun PkCalibrationSection(
     onOpenReview: () -> Unit,
     onInfo: () -> Unit,
     modifier: Modifier = Modifier,
-    // Target range summary shown as the last row; null hides it.
-    targetRange: String? = null,
 ) {
     val adjustedRows = if (uiState.globalState == PkCalibrationGlobalState.READY) {
         uiState.routeRows.filter { row -> row.displayState.isAdjusted }
@@ -125,9 +123,6 @@ fun PkCalibrationSection(
                     onClick = onOpenReview,
                 )
             }
-        }
-        targetRange?.let { summary ->
-            item { CalibrationTargetRangeRow(summary = summary) }
         }
     }
 }
@@ -249,11 +244,17 @@ private fun PkCalibrationRouteSummaryCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_route),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Box(
+                    modifier = Modifier.size(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_route),
+                        modifier = Modifier.size(23.dp),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 val title = stringResource(R.string.calibration_pk_routes_card_title)
                 val trailingText = stringResource(
                     R.string.calibration_pk_routes_card_adjusted_of,
@@ -715,7 +716,6 @@ private fun PkCalibrationSectionReadyPreview() {
             onOpenRoutes = { },
             onOpenReview = { },
             onInfo = { },
-            targetRange = previewPkTargetRange,
         )
     }
 }
@@ -732,7 +732,6 @@ private fun PkCalibrationSectionNotReadyPreview() {
             onOpenRoutes = { },
             onOpenReview = { },
             onInfo = { },
-            targetRange = previewPkTargetRange,
         )
     }
 }
@@ -749,7 +748,6 @@ private fun PkCalibrationSectionUnavailablePreview() {
             onOpenRoutes = { },
             onOpenReview = { },
             onInfo = { },
-            targetRange = previewPkTargetRange,
         )
     }
 }
@@ -852,7 +850,6 @@ private val previewPkLabFlags = listOf(
     PkCalibrationLabRowFlag.Excluded(previewPkLabResultId, dismissed = true),
 )
 
-private const val previewPkTargetRange = "Estradiol: 100–200 pg/mL\nTestosterone: <50 ng/dL"
 
 @Composable
 private fun PkCalibrationPreviewColumn(content: @Composable () -> Unit) {
