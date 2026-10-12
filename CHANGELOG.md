@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-12
+
 ### Added
 
+- The Calibration entry in Settings shows whether the estimate is calibrated or the population estimate.
 - The icon beside the estradiol title on Home now opens "About this estimate", which lists the routes behind the estimate and the estimate disclaimer. A calibrated route that makes up only a small share of the curve is marked "Small share". It replaces the info button.
 
 ### Fixed
 
+- After you log a dose, add a result, or switch the chart between 7 and 30 days, Home and the calibration page no longer flash in-between states such as the population estimate. They keep showing the previous state with a refresh indicator under the top bar until the update is ready, then switch to it all at once.
 - Home-screen widgets placed before 1.4.0 no longer grow after the update. The widget content scale is lowered once to match the size the widget had before. If you already lowered the scale on 1.4.0-pre, check it again.
 - Chinese text no longer sits below the icon next to it, and text fields no longer jump when a Chinese character follows Latin text. This affected phones whose Latin and Chinese system fonts differ (Pixel, Samsung); phones whose system font covers both, such as Xiaomi with MiSans, are unchanged. The "Adjust Chinese text display" setting is gone, since it is no longer needed.
 - Estimate calibration fits only the routes that at least one result supports; a route no result supports is held at the population estimate instead of being fitted and then dropped, so the drawn curve and its prediction interval describe the same fit.
@@ -28,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Estimate calibration solves about ten times faster. On a Galaxy S20, a five-route history with 20 results took about 5 seconds per Home refresh and now takes about half a second.
 - The shaded band on the Home chart is now called a prediction interval and is drawn lighter, and its legend matches the chart.
 - Calibration text is shorter and clearer in every language.
+- Settings > About the model now opens Featherline's notes on how its model differs from the original, instead of the original model's repository.
 - Sheets and cards look more consistent: calibration sheets use the same cards as the rest of the app, every editor sheet has the same gap under its title, sheet cards share one background color, and cards nested in cards have even margins.
 
 ## [1.4.0-pre] - 2026-10-07
@@ -290,7 +295,9 @@ First public release on Google Play.
 - Material 3 interface with dynamic color.
 - Fully on-device, encrypted local storage — no accounts, no telemetry, no network calls.
 
-[Unreleased]: https://github.com/mkx173/Featherline/compare/v1.3.3...HEAD
+[Unreleased]: https://github.com/mkx173/Featherline/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/mkx173/Featherline/compare/v1.4.0-pre...v1.4.0
+[1.4.0-pre]: https://github.com/mkx173/Featherline/compare/v1.3.3...v1.4.0-pre
 [1.3.3]: https://github.com/mkx173/Featherline/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/mkx173/Featherline/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/mkx173/Featherline/compare/v1.3.0...v1.3.1

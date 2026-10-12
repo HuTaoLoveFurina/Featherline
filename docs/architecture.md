@@ -493,13 +493,30 @@ sampling fingerprint (`chartWindowHours`, dense-sample policy, and
 post-dose-offset flag) so a 7-day cache cannot satisfy a 30-day chart
 or vice versa.
 
-Chart-window changes are settings changes, not Room mutations.
-`HomeSnapshotRepository` observes the raw DataStore-backed
-`homeE2ChartWindowOptionFlow`, invalidates the snapshot after an
-actual option change, and forces a rebuild. `HomeRepository` also uses
-that raw flow when validating snapshots and sizing fallback Room PK
-queries, so a persisted 30-day choice does not briefly behave like
-the default seven-day chart during cold start.
+Chart-window changes are settings changes, but they change what Home
+draws, so `HomeRepository.setHomeE2ChartWindowOption` writes the option
+inside `runHomeDataMutation` like a Room mutation: the rebuild is in
+flight before the option lands. `HomeRepository` reads the raw
+DataStore-backed `homeE2ChartWindowOptionFlow` when validating
+snapshots and sizing fallback Room PK queries, so a persisted 30-day
+choice does not briefly behave like the default seven-day chart during
+cold start.
+
+While a mutation's rebuild is in flight, Home and the calibration page
+keep their last settled state instead of drawing the in-between ones
+(the cleared snapshot's fallback, a lab list that is ahead of its
+re-solve). `HomeSnapshotRepository.forcedRebuildInFlight` counts
+mutations and forced refreshes, and `lastWrite` names the record the
+last build wrote; `HomeRepository` marks `HomeInputs.isRebuilding` until
+the observed snapshot is that write, and
+`PkCalibrationLiveRepository.updating` does the same for the
+calibration page. `MainViewModel` and `CalibrationViewModel` pass their
+inputs through `holdWhileUpdating` (`util/HoldWhileUpdating.kt`), which
+keeps the settled value and shows `TopUpdatingIndicator` until the
+rebuild lands, for at least `UPDATING_MIN_HOLD_MILLIS` counted from
+when the screen is visible. A rebuild that lands while the screen is
+hidden releases at once. Home's launch refresh is not forced, so the
+indicator does not show on every start.
 
 Bundling the PK projection into the same record as the
 plan-and-fulfillment cache is a known leaky seam:
