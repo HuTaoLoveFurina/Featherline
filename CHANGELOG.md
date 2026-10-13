@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-13
+
 ### Changed
 
 - Estradiol estimates were refit to the primary pharmacokinetic literature. Oral estradiol and valerate estimates are about 30% lower on average and peak about an hour later, matching blood levels measured by mass spectrometry in trans women. Sublingual estimates peak about a quarter lower and no longer fall below what the same tablet swallowed would give from 8 hours on. Benzoate, valerate, cypionate and enanthate injections now share one bioavailability: valerate estimates rise about 25%, cypionate falls about 18% and now peaks on day 2 instead of day 4, enanthate falls about 12%, benzoate is unchanged. Gel estimates are about 43% higher, in line with the Oestrogel label and a 2025 cohort of trans people on EstroGel. Existing calibrations are refit on the first open after the update.
+- Patch routes in calibration show the patch icon instead of the "apply patch" icon, and the rows in the routes sheet are tidier.
+
+### Fixed
+
+- When you remove a medicine from a plan you are editing and then add another, the medicine list no longer counts the unsaved plan as still using the removed medicine.
+- Right after the app starts, "About this estimate" shows a loading indicator and then grows smoothly to fit the routes, instead of blinking from a "still loading" row.
+- In the date picker, tapping the next-month arrow quickly now moves forward one month per tap, as the previous-month arrow already did, and the month name updates right away.
+- The colon in the time picker no longer sits below the digits with its lower dot cut off on some phones, such as the Galaxy S20.
 
 ## [1.4.0] - 2026-10-12
 
@@ -303,7 +313,8 @@ First public release on Google Play.
 - Material 3 interface with dynamic color.
 - Fully on-device, encrypted local storage — no accounts, no telemetry, no network calls.
 
-[Unreleased]: https://github.com/mkx173/Featherline/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/mkx173/Featherline/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/mkx173/Featherline/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/mkx173/Featherline/compare/v1.4.0-pre...v1.4.0
 [1.4.0-pre]: https://github.com/mkx173/Featherline/compare/v1.3.3...v1.4.0-pre
 [1.3.3]: https://github.com/mkx173/Featherline/compare/v1.3.2...v1.3.3
