@@ -131,6 +131,16 @@ class PkSimulationTest {
         val gel = simulate(PkRoute.GEL, 1.5, days = 14, listOf(0.0, 13 * 24.0 + 12.0))
         assertTrue(requireNotNull(gel.concentrationAt(13 * 24.0 + 12.0)) in 55.0..80.0)
 
+        // The swallowed limb's recycling share keeps a sublingual dose at or above the same-dose
+        // oral curve once the mouth-absorbed part is gone (Doll 2022, Price 1997, Fiet 1982).
+        val oralSingle = simulate(PkRoute.ORAL, 1.0, days = 1, listOf(8.0, 24.0))
+        val sublingualTail = simulate(PkRoute.SUBLINGUAL, 1.0, days = 1, listOf(8.0, 24.0))
+        for (t in listOf(8.0, 24.0)) {
+            val sl = requireNotNull(sublingualTail.concentrationAt(t))
+            val po = requireNotNull(oralSingle.concentrationAt(t))
+            assertTrue("sublingual $sl below oral $po at $t h", sl >= po)
+        }
+
         // EV tracks E2 at equal E2 content on both routes.
         for (route in listOf(PkRoute.ORAL, PkRoute.SUBLINGUAL)) {
             val times = listOf(1.0, 6.0, 30.0)
@@ -139,6 +149,37 @@ class PkSimulationTest {
                 simulate(route, 1.0, days = 2, times, PkCompound.EV).concentrations,
             )
         }
+    }
+
+    @Test
+    fun estradiolCypionate_peaksEarlyAndIsSpentByTwoWeeks() {
+        // Zhou 1998 and Rahimy 1999: 5 mg peaks on day 1-2 (about 200-250 pg/mL at ~58 kg) and is
+        // near baseline by day 14. 5 mg of cypionate is 3.43 mg of estradiol.
+        val result = PkSimulationEngine(
+            events = listOf(
+                PkDoseEvent(
+                    id = UUID.randomUUID(),
+                    sourceGroupUuid = null,
+                    hormone = PkHormone.ESTRADIOL,
+                    route = PkRoute.INJECTION,
+                    timeH = 0.0,
+                    doseMg = 5.0 * PkCatalog.activeFactor(PkCompound.EC),
+                    compound = PkCompound.EC,
+                ),
+            ),
+            hormone = PkHormone.ESTRADIOL,
+            bodyWeightKg = 70.0,
+            startTimeH = 0.0,
+            endTimeH = 28.0 * 24.0,
+            numberOfSteps = 2,
+        ).run(sampleTimeH = listOf(24.0, 2.15 * 24.0, 4.0 * 24.0, 14.0 * 24.0, 28.0 * 24.0))
+
+        val peak = requireNotNull(result.concentrationAt(2.15 * 24.0))
+        assertTrue(peak in 150.0..190.0)
+        assertTrue(peak > requireNotNull(result.concentrationAt(24.0)))
+        assertTrue(peak > requireNotNull(result.concentrationAt(4.0 * 24.0)))
+        assertTrue(requireNotNull(result.concentrationAt(14.0 * 24.0)) in 40.0..60.0)
+        assertTrue(requireNotNull(result.concentrationAt(28.0 * 24.0)) < 25.0)
     }
 
     @Test

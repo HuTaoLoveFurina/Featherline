@@ -878,6 +878,14 @@ private object PkParameterResolver {
                 } else {
                     val theta = event.sublingualTheta?.coerceIn(0.0, 1.0)
                         ?: PkCatalog.standardSublingualTheta
+                    val oralF = PkCatalog.oralBioavailability(event.compound) ?: 0.0
+                    // The recycling share is a fraction of the whole dose; the swallowed limb
+                    // carries (1 - theta) of it, so divide to express it per swallowed mg.
+                    val recycled = if (theta < 1.0) {
+                        PkCatalog.sublingualRecyclingShare / (1.0 - theta)
+                    } else {
+                        0.0
+                    }
                     PkParams(
                         fracFast = theta,
                         k1Fast = PkCatalog.kAbsSublingual,
@@ -887,7 +895,7 @@ private object PkParameterResolver {
                         bioavailability = 1.0,
                         rateMgH = 0.0,
                         fastBioavailability = 1.0,
-                        slowBioavailability = PkCatalog.oralBioavailability(event.compound) ?: 0.0,
+                        slowBioavailability = oralF + recycled,
                     )
                 }
             }
@@ -1283,6 +1291,12 @@ object PkCatalog {
     // point lower (0.6-0.9/h). No primary source exists for the often-quoted "11-14 h"
     // sublingual half-life; the ~12 h apparent 4-24 h half-life emerges from the two limbs.
     const val kElimSublingual: Double = 1.2
+    // Share of a sublingual dose routed through the swallowed limb at full bioavailability, on
+    // top of (1 - theta) x oral F. Keeps the 8-24 h sublingual curve at or above the same-dose
+    // oral curve (Doll 2022, Price 1997, Fiet 1982) without overshooting Cirrincione 2021's
+    // LC-MS/MS steady-state median. Sized between Burnier 1981 and Fiet 1982, which disagree
+    // 20x at 24 h: a convention, not a measurement.
+    const val sublingualRecyclingShare: Double = 0.004
 
     private val coreParams = mapOf(
         PkHormone.ESTRADIOL to HormoneCoreParams(
@@ -1337,12 +1351,18 @@ object PkCatalog {
 
     private val twoPartDepot = mapOf(
         PkCompound.EB to TwoPartDepotParams(fracFast = 0.9, k1Fast = 0.144, k1Slow = 0.114),
+        // Not refit: Oriowo 1980 wants a taller, narrower peak (580-670 pg/mL at day 2.2, baseline
+        // by day 7-8) and Dusterberg & Nishino 1982 a longer tail (148 pg/mL at day 10); this
+        // shape sits between them and peaks at day 2.3 against measured day 2-3.
         PkCompound.EV to TwoPartDepotParams(fracFast = 0.4, k1Fast = 0.0216, k1Slow = 0.0138),
-        PkCompound.EC to TwoPartDepotParams(
-            fracFast = 0.229164549,
-            k1Fast = 0.005035046,
-            k1Slow = 0.004510574
-        ),
+        // Fit to Zhou 1998 (5 mg Cyclofem: a day-1 spike over a flat day 3-7 shoulder in all three
+        // cycles) and Rahimy 1999 (peak 2.1 d, half-life 8.4 d). Upstream's two rates differed by
+        // 12%, i.e. one depot, which could not peak early without a 3x higher peak. Day 14 stays
+        // above the "spent by day 11-14" every source reports. Antiserum cross-reactivity with
+        // intact cypionate was never measured; if the day-1 spike is ester, drop the fast part.
+        PkCompound.EC to TwoPartDepotParams(fracFast = 0.15, k1Fast = 0.08, k1Slow = 0.0035),
+        // Labels are inverted: the 5% "fast" part at 0.001/h is the slower one. Peaks at day 5.9
+        // for 10 mg against Schiavon 1988's 6.3 d; back to baseline by day ~30.
         PkCompound.EN to TwoPartDepotParams(fracFast = 0.05, k1Fast = 0.001, k1Slow = 0.005),
         // Transmtf im-depot-v1: EU is a single rate-limiting slow depot.
         PkCompound.EU to TwoPartDepotParams(fracFast = 0.0, k1Fast = 0.00082, k1Slow = 0.00082),
