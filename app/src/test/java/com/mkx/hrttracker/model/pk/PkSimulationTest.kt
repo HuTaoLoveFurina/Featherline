@@ -106,25 +106,30 @@ class PkSimulationTest {
                 numberOfSteps = 2,
             ).run(sampleTimeH = sampleTimeH)
 
-        // Label steady state for 2 mg/day: Cmax 89, Cmin 35 pg/mL.
+        // 2 mg/day steady state at 70 kg: 57 / 27 pg/mL peak / trough, spread 2.1x. Cattani 2023
+        // measured 62 / 35 on 2 mg valerate in trans women, including endogenous E2.
         val oral = simulate(PkRoute.ORAL, 2.0, days = 10, listOf(9 * 24.0 + 5.0, 10 * 24.0))
-        assertTrue(requireNotNull(oral.concentrationAt(9 * 24.0 + 5.0)) in 75.0..105.0)
-        assertTrue(requireNotNull(oral.concentrationAt(10 * 24.0)) in 25.0..45.0)
+        val oralPeak = requireNotNull(oral.concentrationAt(9 * 24.0 + 5.0))
+        val oralTrough = requireNotNull(oral.concentrationAt(10 * 24.0))
+        assertTrue(oralPeak in 50.0..65.0)
+        assertTrue(oralTrough in 22.0..32.0)
+        assertTrue(oralPeak / oralTrough in 1.9..2.4)
 
         // 1 mg sublingual at 1 h: 120 above baseline in Doll 2022, 441 in Price 1997. Both fall
         // to ~0.15x of that by 4 h.
         val sublingual = simulate(PkRoute.SUBLINGUAL, 1.0, days = 1, listOf(1.0, 4.0))
         val oneHour = requireNotNull(sublingual.concentrationAt(1.0))
-        assertTrue(oneHour in 120.0..450.0)
+        assertTrue(oneHour in 150.0..350.0)
         assertTrue(requireNotNull(sublingual.concentrationAt(4.0)) / oneHour in 0.1..0.25)
 
         // Estrana tape 0.72 mg (total-content entry): ~52-60 pg/mL in ~55 kg women, ~41 at 70 kg.
         val estrana = simulate(PkRoute.PATCH_APPLY, 0.72, days = 1, listOf(0.0, 24.0))
         assertTrue(requireNotNull(estrana.concentrationAt(24.0)) in 35.0..55.0)
 
-        // Gel 1.5 mg/day: ~67 above baseline in the Oestrogel UK SmPC, ~37 in Jarvinen 1999.
+        // Gel 1.5 mg/day: Oestrogel UK SmPC day-12 average 76.8 pg/mL and the Melbourne trans
+        // cohort median 77.6, both including endogenous E2; the model averages 65 at 70 kg.
         val gel = simulate(PkRoute.GEL, 1.5, days = 14, listOf(0.0, 13 * 24.0 + 12.0))
-        assertTrue(requireNotNull(gel.concentrationAt(13 * 24.0 + 12.0)) in 35.0..67.0)
+        assertTrue(requireNotNull(gel.concentrationAt(13 * 24.0 + 12.0)) in 55.0..80.0)
 
         // EV tracks E2 at equal E2 content on both routes.
         for (route in listOf(PkRoute.ORAL, PkRoute.SUBLINGUAL)) {

@@ -310,7 +310,7 @@ class PkCalibrationRendererTest {
     @Test
     fun aggregateBandFailure_preservesPersonalizedCentralAndFit() {
         val evaluation = evaluation(
-            events = listOf(event(PkRoute.ORAL, 0.0, 2.94e306)),
+            events = listOf(event(PkRoute.ORAL, 0.0, 5.9e306)),
             promotedQByRoute = mapOf(PkCalibrationRoute.ORAL to ln(1.1)),
         )
         val actual = render(evaluation, domain(startHours = 1, hours = 12, intervalHours = 3))
@@ -426,7 +426,7 @@ class PkCalibrationRendererTest {
         assertEquals(emptyList<Pair<Int, Int>>(), PkCalibrationRenderer.segmentShapedKnots(listOf(1, 2)) { false })
 
         val evaluation = evaluation(
-            events = listOf(event(PkRoute.INJECTION, 0.0, 4.0, PkCompound.EV)) +
+            events = listOf(event(PkRoute.INJECTION, 0.0, 2.0, PkCompound.EV)) +
                 (0..240 step 24).map { hour -> event(PkRoute.ORAL, hour.toDouble(), 2.0) },
             promotedQByRoute = mapOf(PkCalibrationRoute.ORAL to ln(1.1)),
         )

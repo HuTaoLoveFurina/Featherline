@@ -37,8 +37,9 @@ should read the upstream README and its `pk_research/` workspace.
   (`kClear`, `kClearInjection`), volume-of-distribution (`vdPerKg =
   2.0` for both hormones), and the
   per-compound `k1Fast` / `k1Slow` / `k2` / formation fractions are
-  taken from upstream's anchored parameters, except the EB, EC and EN
-  formation fractions described below. There are two more exceptions.
+  taken from upstream's anchored parameters, except the formation
+  fractions, which share one value described below, and the cypionate
+  depot rates. There are two more exceptions.
   **Estradiol undecylate (EU)** takes its depot parameters from
   [`Transmtf-HRT-Tracker`](https://github.com/TransmtfTeam/Transmtf-HRT-Tracker)
   (the "im-depot-v1" model), because the LaoZhong upstream has no EU
@@ -167,7 +168,8 @@ should read the upstream README and its `pk_research/` workspace.
   `PkParameterResolver`'s `GEL` branch uses `core.gelK1` and
   `core.gelFMax` directly. The field is kept so a future skin-depot
   gel model has somewhere to put per-event area without a data-class
-  bump.
+  bump. Järvinen 1997 gives the area dependence to wire when that
+  happens: `F = gelFMax × (1 − 0.31 ln(area / 750))` over 200–1,600 cm².
 - **Sublingual θ is fixed, not user-settable.** Upstream lets the user
   configure the sublingual θ — the fraction of a sublingual dose
   absorbed through the buccal mucosa (fast pathway) versus swallowed
@@ -177,7 +179,7 @@ should read the upstream README and its `pk_research/` workspace.
   nothing in the UI ever sets it. The
   [`PkParameterResolver.SUBLINGUAL`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L820)
   branch always falls back to the catalog default
-  [`PkCatalog.standardSublingualTheta = 0.11`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L1204).
+  [`PkCatalog.standardSublingualTheta = 0.08`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/pk/PkSimulation.kt#L1204).
   Real per-person variation in mucosal-vs-swallowed fraction can be
   substantial; Featherline does not currently expose it for tuning.
 - **Oral estradiol is refit to blood levels.** Upstream's
@@ -186,27 +188,46 @@ should read the upstream README and its `pk_research/` workspace.
   estrone sulfate keeps converting back to E2. With upstream's values,
   2 mg once daily falls to under 1 pg/mL by the next dose. Those
   near-zero troughs fall under the calibration floor, so trough results
-  were set aside. Upstream's 2026 source audit did not cover estradiol.
-  Featherline uses `oralKAbs[E2] = 0.06` and
-  `oralBioavailability[E2] = 0.043`; the slow absorption rate stands in
-  for the estrone-sulfate reservoir. At 70 kg, 2 mg once daily reaches
-  a steady state of 89 / 33 / 62.9 pg/mL (peak / trough / average). The
-  label's figures are 89 / 35 / 62.9. A single 1 mg dose peaks at
-  33 pg/mL at 5.5 h; Doll 2022 measured about 35. The swallowed part
-  of a sublingual dose goes through this refit oral path.
+  were set aside. Featherline uses `oralKAbs[E2] = 0.045` and
+  `oralBioavailability[E2] = 0.030`. The slow absorption rate stands in
+  for the estrone-sulfate reservoir and gives a single-dose peak at 6 h,
+  an apparent half-life of 15 h and daily accumulation of 1.6×, which
+  Aedo 1990 (1.53×) and Stadberg 1999 (1.4–1.6× after baseline
+  correction) measured. The bioavailability is really F/CL at the
+  catalog's clearance: Kuhnz 1993, Price 1997, Timmer 1999 and Stadberg
+  1999 give CL/F of 26–31 L/h/kg, Cattani 2023 (LC-MS/MS, trans women)
+  2.75%, Aedo 1990 2.8–3.6% and Düsterberg 1985 about 3%. The
+  literature's "about 5%" is Kuhnz's figure against a clearance twice
+  the catalog's. An earlier 0.043 was back-solved from the Zumenon 2 mg
+  SmPC's steady-state figures (89 / 35 / 62.9 pg/mL, arithmetic means
+  that include endogenous E2, cohort weight unstated), which now mark
+  the top of the range. At
+  70 kg, 2 mg once daily reaches 57 / 27 / 44 pg/mL (peak / trough /
+  average); Cattani measured 62 / 35 / 42 on 2 mg valerate including
+  endogenous E2. The swallowed part of a sublingual dose goes through
+  this oral path. The derivation of every constant is in
+  `notes/reports/Estradiol PK parameters final papers.md`.
 - **The mouth-absorbed part of a sublingual dose clears faster than
-  E2's own rate.** Upstream sends it through E2's clearance (0.41/h), so
-  a 1 mg dose stayed near its peak for hours. In Doll 2022 and Price
-  1997, levels fall from their 1 h value to about 0.36× by 2 h and
-  0.15× by 4 h, likely through conversion to estrone. Featherline adds
-  `kElimSublingual = 1.2` for that part and keeps upstream's θ and
-  absorption rate. Fitted to both studies with the refit oral path, a
-  1 mg dose at 70 kg peaks at 359 pg/mL at 0.7 h. It is 170 at 2 h, 45
-  at 4 h and 27 at 8 h. Doll measured 120 above baseline at 1 h (LC-MS/MS,
-  trans women); Price measured 441 (RIA, postmenopausal women).
-  Total exposure over 24 h is 2.1× oral; Price measured 2.6×. Doll's
-  reported 1.8× over 0–8 h includes baseline E2. Above baseline it is
-  about 4.5×.
+  E2's own rate, and the swallowed part carries a small recycling
+  share.** Upstream sends the mouth-absorbed part through E2's clearance
+  (0.41/h), so a 1 mg dose stayed near its peak for hours. In Doll 2022,
+  Price 1997, Burnier 1981 and Casper & Yen 1981, levels fall from their
+  1 h value to about 0.4× by 2 h and 0.15× by 4 h, the same fall seen
+  after an intravenous bolus (distribution plus clearance, not estrone
+  conversion). Featherline uses `kElimSublingual = 1.2` for that part,
+  keeps upstream's absorption rate, and sets θ, the share absorbed
+  through the mucosa, to 0.08: a midpoint between the peak-matched 0.058
+  (Fiet 1982, Casper & Yen 1981, Doll 2022) and the estrone-matched
+  0.101 (Cirrincione 2021). Because every study puts the sublingual
+  curve at or above the same-dose oral curve from 8 h on, and two limbs
+  alone cannot, the swallowed limb also carries 0.4% of the dose at full
+  bioavailability (`sublingualRecyclingShare`). At 70 kg a 1 mg dose
+  peaks at 260 pg/mL at 0.7 h, is 122 at 2 h, 31 at 4 h and 19 at 8 h,
+  and its 24 h exposure is 2.5× oral (Price measured 2.6×). Doll
+  measured 120 above baseline at 1 h (LC-MS/MS, trans women); Price
+  measured 441 (RIA, postmenopausal women). Cirrincione's LC-MS/MS
+  steady-state median in trans women on 6 mg/day matches the model's
+  interval median within 3%.
 - **Estradiol valerate (EV) is modeled as E2 when swallowed or held
   under the tongue.** Doses are already converted to E2 content, and EV
   now uses E2's oral values and θ. Upstream used `oralKAbs[EV] = 0.05`
@@ -232,34 +253,45 @@ should read the upstream README and its `pk_research/` workspace.
   `0.0035`, which gives about 48–54 pg/mL. That is about 14% of the
   content delivered over 2 days. Patches labelled by release rate
   (µg/day) use the zero-order path instead.
-- **Benzoate, cypionate and enanthate injections deliver less E2.**
-  An injection's total E2 exposure, divided by the clearance the patch
-  labels support (`kClear = 0.41`, 2 L/kg), gives the share of the dose
-  that reached the blood. Upstream's formation fractions put that share
-  above 1 for EB (1.09), EC (1.17) and EN (1.20), which is impossible.
-  Estrannaise, TFS and GAHT Plotter give 0.68–0.93. Featherline lowers
-  EB from 0.109 to 0.08 and EC from 0.117 to 0.095. Both now match total
-  exposure in Oriowo 1980 (5 mg IM each, RIA). EB at 0.08 is 0.79× of
-  Oriowo and 1.14× of TFS. EN goes from 0.12 to 0.089, the three
-  references' average. No primary EN curve was checked. EV keeps
-  upstream's value; its exposure is within 8% of Oriowo and TFS.
-- **Gel delivers less E2 and is absorbed faster.** Upstream's
-  `gelFMax = 0.06` and `gelK1 = 0.022` have no stated source. Gel
-  sources disagree about 2×. The F each one implies, after removing an
-  assumed postmenopausal baseline of about 10 pg/mL from unadjusted
-  values:
-  - EstroGel FDA label, 0.75 mg/day, day-14 average 28.3 pg/mL: 0.034.
-  - Oestrogel UK SmPC, 1.5 mg/day, day-12 average 76.8: 0.061.
-  - Scott 1991, 1.5 and 3 mg: 0.053 and 0.043.
-  - Järvinen 1999, where 1.5 mg gel gave 1.09× a 50 µg/day patch:
-    0.037.
-
-  Giving each study one vote, Featherline uses `gelFMax = 0.042`. Every
-  source then sits within 0.67–1.46× of the model. `gelK1 = 0.04`
-  matches Järvinen's 4–5 h peak and the labels' steady state from the
-  third daily dose; upstream's 0.022 reached only 79% by 72 h. At 70 kg,
-  0.75 mg/day averages 23 pg/mL above baseline and 1.5 mg/day averages
-  46.
+- **All four esters share one formation fraction.** An injection's
+  total E2 exposure, divided by the catalog's clearance (`kClear =
+  0.41`, 2 L/kg), gives the share of the dose that reached the blood;
+  because injections clear at a tenth of that rate, the share is 10× the
+  formation fraction and no ester can exceed 0.100. Upstream's values
+  put that share above 1 for EB (1.09), EC (1.17) and EN (1.20), which
+  is impossible. Oriowo 1980, the only head-to-head study (5 mg each in
+  one cohort and assay), gives per-mg exposures for EB, EV and EC within
+  7% of each other (shares 0.72 / 0.82 / 0.75); Zhou 1998's cypionate
+  table gives 0.65–0.88, Schiavon 1988's enanthate peaks favour 0.78 over
+  0.89, and Garza-Flores 1994's idealised curves give 0.71–0.80, so
+  Featherline uses `0.078` for EB, EV, EC and EN. Valerate is bracketed
+  by Aedo 1985's measured peak (fits 0.062) below and Düsterberg &
+  Nishino 1982's 4 mg curve (needs 0.09–0.10, and integrates to more E2
+  than the dose) above. Estrannaise and TFS give 0.68–0.94; GAHT Plotter
+  gives 0.81–1.55 and is not a valid exposure vote. The cypionate depot
+  is refit to Zhou 1998 and Rahimy 1999 (`fracFast 0.15`, `k1Fast 0.08`,
+  `k1Slow 0.0035`): upstream's two rates differed by 12%, so the depot
+  could not peak on day 1–2 as every study that sampled day 1 found. The
+  valerate and enanthate depots are unchanged; the two primary valerate
+  curves disagree in opposite directions on its tail, and enanthate peaks
+  within 7% of Schiavon's 6.3 days.
+- **Gel bioavailability is the 0.06% product on its label area, and gel
+  is absorbed faster.** Upstream's `gelFMax = 0.06` and `gelK1 = 0.022`
+  have no stated source. Featherline keeps `gelFMax = 0.060`: the
+  Oestrogel UK SmPC's day-12 average of 76.8 pg/mL at 1.5 mg/day and the
+  Melbourne trans cohort's median of 77.6 pg/mL on the same product and
+  dose (Maggacis 2025) agree within 1%, and Järvinen 1997 interpolates
+  0.057–0.063 at 750 cm². Bioavailability falls with application area
+  rather than product class: in Järvinen 1997 the same 1 mg of 0.1% gel
+  gave 0.081 on 200 cm², 0.068 on 400 cm² and 0.038 spread over both
+  thighs, so small-area 0.1% products read above 0.060 as labelled and
+  near 0.035 only when spread widely. `areaCm2` is carried on every gel
+  event but not applied. `gelK1 = 0.04` is a lumped skin-to-blood rate:
+  the steady-state peak is 4–5 h on 200–400 cm² (Järvinen 1997), the
+  single-dose peak 6–8 h (Järvinen 1999), and steady state arrives by
+  the third daily dose as four labels state; upstream's 0.022 reached
+  only 79% by 72 h. At 70 kg, 0.75 mg/day averages 33 pg/mL above
+  baseline and 1.5 mg/day averages 65.
 
 ## Route-scale estimate calibration
 

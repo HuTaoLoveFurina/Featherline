@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Estradiol estimates were refit to the primary pharmacokinetic literature. Oral estradiol and valerate estimates are about 30% lower on average and peak about an hour later, matching blood levels measured by mass spectrometry in trans women. Sublingual estimates peak about a quarter lower and no longer fall below what the same tablet swallowed would give from 8 hours on. Benzoate, valerate, cypionate and enanthate injections now share one bioavailability: valerate estimates rise about 25%, cypionate falls about 18% and now peaks on day 2 instead of day 4, enanthate falls about 12%, benzoate is unchanged. Gel estimates are about 43% higher, in line with the Oestrogel label and a 2025 cohort of trans people on EstroGel. Existing calibrations are refit on the first open after the update.
+
 ## [1.4.0] - 2026-10-12
 
 ### Added

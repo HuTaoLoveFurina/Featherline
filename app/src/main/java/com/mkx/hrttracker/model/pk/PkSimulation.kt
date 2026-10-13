@@ -1239,6 +1239,9 @@ private fun MedicationKey.toEstradiolPkCompound(): PkCompound? {
     }
 }
 
+// Carried on every gel event but not applied. Jarvinen 1997 gives F = gelFMax * (1 - 0.31 *
+// ln(area / 750)) over 200-1,600 cm2 if a per-product area is ever wired (0.1% sachets ~200 cm2,
+// 0.06% pump ~750 cm2).
 private const val DefaultGelAreaCm2 = 750.0
 
 data class HormoneCoreParams(
@@ -1267,26 +1270,46 @@ data class TwoPartDepotParams(
 )
 
 object PkCatalog {
-    const val standardSublingualTheta: Double = 0.11
+    // Share of a sublingual dose absorbed through the mucosa. 0.08 is a midpoint between the
+    // peak-matched 0.058 (Fiet 1982, Casper & Yen 1981, Doll 2022) and the estrone-matched 0.101
+    // (Cirrincione 2021); range 0.05-0.09. Only theta / kElimSublingual (exposure) and the peak
+    // are identified, so move the pair together; both scale with vdPerKg. See
+    // notes/reports/Estradiol PK parameters final papers.md for every constant's derivation.
+    const val standardSublingualTheta: Double = 0.08
+    // Peak at 0.68 h, the slow edge of the observed 0.25-0.75 h (Casper & Yen 1981, Fiet 1982).
     const val kAbsSublingual: Double = 1.8
-    // The mouth-absorbed part falls from its peak far faster than E2's own clearance allows
-    // (2 h value ~0.36x the 1 h value in Doll 2022, 4 h ~0.17x in Price 1997), likely by
-    // conversion to estrone; fitted jointly with upstream's theta and kAbsSublingual.
+    // Lumped post-peak rate of the mucosal part: distribution plus clearance after a bolus
+    // (Kuhnz 1993 IV phases 2.3/h and 0.77/h), not conversion to estrone. Direct mucosal fits
+    // point lower (0.6-0.9/h). No primary source exists for the often-quoted "11-14 h"
+    // sublingual half-life; the ~12 h apparent 4-24 h half-life emerges from the two limbs.
     const val kElimSublingual: Double = 1.2
 
     private val coreParams = mapOf(
         PkHormone.ESTRADIOL to HormoneCoreParams(
+            // A terminal-slope (V_z-like) volume chosen to pair with kClear: Dusterberg 1985 gives
+            // 2.0-2.3 L/kg, steady-state volumes are lower (1.0-1.6). standardSublingualTheta
+            // scales with it.
             vdPerKg = 2.0,
+            // CL = kClear * vdPerKg = 0.82 L/h/kg, the median of eleven human IV clearances
+            // (Kuhnz, Blode & Zimmermann 1999, table 2; core 0.56-0.98). IV terminal half-life
+            // 1.7-2.2 h puts 0.41/h at the fast end of 0.32-0.41/h. Every bioavailability and
+            // formation fraction in this catalog is really F / CL at this clearance.
             kClear = 0.41,
+            // Fitting device for the injection tail, a tenth of kClear: an injection's share of
+            // the dose reaching blood is 10 x its formation fraction.
             kClearInjection = 0.041,
             depotK1Correction = 1.0,
             // Total-content patches are in practice Estrana tape: 0.72 mg worn 48 h holds ~52-60
             // pg/mL in postmenopausal women (JP insert), i.e. ~14% of the content delivered.
             patchFallbackK1 = 0.0035,
-            // One vote per study: EstroGel US and Oestrogel UK labels, Scott 1991, Jarvinen 1999
-            // (implied F 0.034-0.061), assuming a ~10 pg/mL baseline under unadjusted values.
+            // Lumped skin-to-blood rate: steady-state peak 4-5 h on 200-400 cm2 (Jarvinen 1997),
+            // single-dose peak 6-8 h (Jarvinen 1999), steady state by the third daily dose.
             gelK1 = 0.04,
-            gelFMax = 0.042,
+            // 0.06% gel on its 750 cm2 label area: Oestrogel UK SmPC day-12 average 76.8 pg/mL and
+            // the Melbourne trans cohort median 77.6 at 1.5 mg/day (Maggacis 2025); Jarvinen 1997
+            // interpolates 0.057-0.063 at 750 cm2. F falls with application area, not product
+            // class: 0.081 on 200 cm2, 0.038 spread over both thighs. areaCm2 is not applied.
+            gelFMax = 0.060,
         ),
         PkHormone.TESTOSTERONE to HormoneCoreParams(
             vdPerKg = 2.0,
@@ -1328,14 +1351,19 @@ object PkCatalog {
         PkCompound.TU to TwoPartDepotParams(fracFast = 0.25, k1Fast = 0.008, k1Slow = 0.00145),
     )
 
-    // EB/EC/EN: upstream's values gave more E2 exposure than the dose contains at the clearance
-    // the patch labels support; lowered to Oriowo 1980 (EB, EC) and the Estrannaise/TFS/GAHT
-    // consensus (EN).
+    // Share of the dose reaching blood is 10 x F (kClearInjection = kClear / 10), so no ester can
+    // exceed 0.100 at this clearance. One shared value: Oriowo 1980's head-to-head per-mg
+    // exposures for EB/EV/EC agree within 7% (shares 0.72/0.82/0.75), Zhou 1998 cypionate
+    // 0.065-0.088, Schiavon 1988 enanthate peaks favour 0.078 over 0.089, Garza-Flores 1994
+    // 0.071-0.080. EV is bracketed by Aedo 1985's peak (fits 0.062) below and Dusterberg &
+    // Nishino 1982's 4 mg curve (needs 0.09-0.10) above. A median of brackets, not a fit to a
+    // published AUC. GAHT Plotter is not a vote: its EB and EC imply shares above 1.
     private val formationFraction = mapOf(
-        PkCompound.EB to 0.08,
-        PkCompound.EV to 0.062258288229969413,
-        PkCompound.EC to 0.095,
-        PkCompound.EN to 0.089,
+        PkCompound.EB to 0.078,
+        PkCompound.EV to 0.078,
+        PkCompound.EC to 0.078,
+        PkCompound.EN to 0.078,
+        // EU clears at kClear, so its share is F itself; references span 0.46-0.94.
         PkCompound.EU to 0.542,
         PkCompound.TC to 1.0,
         PkCompound.TE to 1.0,
@@ -1353,19 +1381,27 @@ object PkCatalog {
         PkCompound.TU to 0.03,
     )
 
-    // E2: a slow flip-flop ka stands in for the estrone-sulfate reservoir, and F is pinned to
-    // the label's 2 mg/day steady state (Cmax 89, Cmin 35, Cavg 62.9 pg/mL at 70 kg).
-    // EV is cleaved during absorption and tracks E2 at equal E2 content (Wiegratz 2001), so it
-    // shares E2's values, sublingual included.
+    // E2: a slow flip-flop ka stands in for the estrone-sulfate reservoir. 0.045 gives a single-
+    // dose peak at 6 h (observed 6-10 h), an apparent half-life of 15 h (13-20 h) and daily
+    // accumulation of 1.6x (Aedo 1990 1.53x, Stadberg 1999 1.4-1.6x). Linear to 4 mg; 8 mg
+    // absorbs incompletely (Kuhnz 1993). EV is cleaved during absorption and tracks E2 at equal
+    // E2 content (Timmer 1999, Wiegratz 2001), so it shares E2's values, sublingual included.
     private val oralKAbs = mapOf(
-        PkCompound.E2 to 0.06,
-        PkCompound.EV to 0.06,
+        PkCompound.E2 to 0.045,
+        PkCompound.EV to 0.045,
         PkCompound.TU to 0.04,
     )
 
+    // F is really F / CL at 0.82 L/h/kg: CL/F is 26-31 L/h/kg across Kuhnz 1993, Price 1997,
+    // Timmer 1999 and Stadberg 1999; Cattani 2023 (LC-MS/MS, trans women) gives 2.75%, Aedo 1990
+    // 2.8-3.6%, Dusterberg 1985 "about 3%". The literature's "about 5%" is Kuhnz's figure against
+    // a clearance twice this one. The earlier 0.043 was back-solved from the Zumenon 2 mg SmPC's
+    // steady-state average of 62.9 pg/mL (arithmetic mean, not baseline-adjusted, cohort weight
+    // unstated), which sits at the top of the range. Range 0.025-0.045. At 70 kg, 2 mg/day gives
+    // 57 / 27 / 44 pg/mL (peak / trough / average).
     private val oralBioavailability = mapOf(
-        PkCompound.E2 to 0.043,
-        PkCompound.EV to 0.043,
+        PkCompound.E2 to 0.030,
+        PkCompound.EV to 0.030,
         PkCompound.TU to 0.03,
     )
 
