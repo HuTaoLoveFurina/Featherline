@@ -503,9 +503,10 @@ choice does not briefly behave like the default seven-day chart during
 cold start.
 
 While a mutation's rebuild is in flight, Home and the calibration page
-keep their last settled state instead of drawing the in-between ones
-(the cleared snapshot's fallback, a lab list that is ahead of its
-re-solve). `HomeSnapshotRepository.forcedRebuildInFlight` counts
+keep their last settled estimate instead of drawing the in-between ones
+(the cleared snapshot's fallback): Home's E2 hero and chart, and the
+calibration page's estimate section. Their dose and lab lists show the
+change at once. `HomeSnapshotRepository.forcedRebuildInFlight` counts
 mutations and forced refreshes, and `lastWrite` names the record the
 last build wrote; `HomeRepository` marks `HomeInputs.isRebuilding` until
 the observed snapshot is that write, and
@@ -514,14 +515,20 @@ calibration page. `MainViewModel` and `CalibrationViewModel` pass their
 inputs through `holdWhileUpdating` (`util/HoldWhileUpdating.kt`), which
 keeps the settled value and shows `TopUpdatingIndicator` until the
 rebuild lands, for at least `UPDATING_MIN_HOLD_MILLIS` counted from
-when the screen is visible. A rebuild that lands while the screen is
-hidden releases at once. Home's launch refresh is not forced, so the
-indicator does not show on every start. System events (boot, clock or
-time-zone change, package replaced, the midnight widget refresh) do
-force a rebuild past the usable-snapshot check but pass `silent = true`
-to `refreshHomeSnapshotAsync` / `refreshHomeSnapshotIfNeeded`, which
-keeps them out of `forcedRebuildInFlight` and off the build's forced
-flag: they land in the background without the indicator.
+when the screen is visible; `Held.latest` carries the newest value
+through the hold. Home builds the screen from the latest inputs and the
+E2 hero, chart and band from the held ones, both at the live time and
+display unit, so a unit switch or midnight during a hold still renders
+correctly. The calibration page takes its lab list from the latest
+value and its section from the held solve. A rebuild that lands while
+the screen is hidden releases at once. Home's launch refresh is not
+forced, so the indicator does not show on every start. System events
+(boot, clock or time-zone change, package replaced, the midnight widget
+refresh) do force a rebuild past the usable-snapshot check but pass
+`silent = true` to `refreshHomeSnapshotAsync` /
+`refreshHomeSnapshotIfNeeded`, which keeps them out of
+`forcedRebuildInFlight` and off the build's forced flag: they land in
+the background without the indicator.
 
 `HomeSnapshotRepository.latestObservedSnapshot` holds the record
 `observeHomeSnapshot` delivered last. Home and the widget observer

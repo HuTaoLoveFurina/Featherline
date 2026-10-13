@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-14
+
+### Fixed
+
+- After you log a dose or add a result, the dose lists on Home and the results on the calibration page update right away. Only the estimate waits under the refresh indicator until the update is ready: the estradiol card and chart on Home, and the Estimate calibration section on the calibration page.
+- The estradiol line on the Home chart no longer dips below a dose marker, and below the bottom of the chart, right after a sublingual dose.
+- The 30-day chart labels five dates six days apart. As you zoom in, more dates appear between them, and the dates already shown no longer move or change. Dates at the chart's ends are no longer cut short on small screens.
+- When you zoom far into the chart on a narrow screen, the start and end dates under it no longer overlap.
+
 ## [1.4.1] - 2026-10-13
 
 ### Changed
@@ -313,7 +322,8 @@ First public release on Google Play.
 - Material 3 interface with dynamic color.
 - Fully on-device, encrypted local storage — no accounts, no telemetry, no network calls.
 
-[Unreleased]: https://github.com/mkx173/Featherline/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/mkx173/Featherline/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/mkx173/Featherline/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/mkx173/Featherline/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/mkx173/Featherline/compare/v1.4.0-pre...v1.4.0
 [1.4.0-pre]: https://github.com/mkx173/Featherline/compare/v1.3.3...v1.4.0-pre
