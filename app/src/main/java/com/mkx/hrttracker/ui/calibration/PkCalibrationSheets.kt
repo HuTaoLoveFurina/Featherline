@@ -25,13 +25,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -65,6 +72,7 @@ import com.mkx.hrttracker.ui.hideBottomSheet
 import com.mkx.hrttracker.ui.theme.HrtTrackerTheme
 import com.mkx.hrttracker.util.labelRes
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 
 /*
  * The calibration sheets (routes detail, review queue, how-it-works). All
@@ -152,10 +160,11 @@ private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
  * may say "population"); that row says so with a pill instead of being
  * relabeled. [smallShareRoutes] names those rows. Home passes the set judged
  * over its own chart range (the snapshot's), so icon and pill never disagree.
- * A null [uiState] (Home, before the first evaluation) and a state with no
- * rows show the app's one-line empty state instead.
+ * A null [uiState] (Home, before the first evaluation) shows a loading
+ * indicator, then fades to the rows while the sheet grows to their height; a
+ * state with no rows shows the app's one-line empty state instead.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PkCalibrationRoutesSheet(
     uiState: PkCalibrationUiState?,
@@ -164,50 +173,90 @@ fun PkCalibrationRoutesSheet(
     disclaimerKinds: List<MedicalDisclaimerKind> = emptyList(),
     smallShareRoutes: Set<PkCalibrationRoute> = uiState?.smallShareRoutes.orEmpty(),
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Rows that land while the sheet is still opening wait for it to settle:
+    // a size change mid-open restarts the open animation every frame, so the
+    // growing content outruns the sheet and pushes its bottom off screen.
+    // Latched, so the hide animation never drops back to loading.
+    var sheetSettled by remember { mutableStateOf(uiState != null) }
+    LaunchedEffect(sheetState) {
+        snapshotFlow {
+            sheetState.currentValue == SheetValue.Expanded && !sheetState.isAnimationRunning
+        }.first { it }
+        sheetSettled = true
+    }
     PkCalibrationSheet(
         title = title,
         onDismissRequest = onDismissRequest,
         disclaimerKinds = disclaimerKinds,
+        sheetState = sheetState,
     ) {
-        val emptyTextRes = pkCalibrationRoutesSheetEmptyTextRes(uiState)
-        if (emptyTextRes != null) {
-            SupportMessageListItem(
-                text = stringResource(emptyTextRes),
-                painter = painterResource(R.drawable.ic_info),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
-            )
-            return@PkCalibrationSheet
+        // Keyed on loading only, so a re-evaluation swaps rows in place
+        // instead of cross-fading the whole list.
+        AnimatedContent(
+            targetState = uiState.takeIf { sheetSettled },
+            contentKey = { state -> state == null },
+            transitionSpec = { fadeIn() togetherWith fadeOut() using SizeTransform() },
+            label = "pkRoutesSheetLoading",
+        ) { state ->
+            if (state == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = dimensionResource(R.dimen.padding_large)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LoadingIndicator()
+                }
+            } else {
+                Column { PkCalibrationRoutesSheetContent(state, smallShareRoutes) }
+            }
         }
-        val state = uiState ?: return@PkCalibrationSheet
-        val (adjusted, population) = state.routeRows.partition { row -> row.displayState.isAdjusted }
-        // Sections spaced like every page's consecutive sections; the first
-        // drops its header's top padding so it sits on the scaffold's title gap.
+    }
+}
+
+@Composable
+private fun PkCalibrationRoutesSheetContent(
+    state: PkCalibrationUiState,
+    smallShareRoutes: Set<PkCalibrationRoute>,
+) {
+    val emptyTextRes = pkCalibrationRoutesSheetEmptyTextRes(state)
+    if (emptyTextRes != null) {
+        SupportMessageListItem(
+            text = stringResource(emptyTextRes),
+            painter = painterResource(R.drawable.ic_info),
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+        return
+    }
+    val (adjusted, population) = state.routeRows.partition { row -> row.displayState.isAdjusted }
+    // Sections spaced like every page's consecutive sections; the first
+    // drops its header's top padding so it sits on the scaffold's title gap.
+    if (adjusted.isNotEmpty()) {
+        HrtSection(
+            title = stringResource(R.string.calibration_pk_hero_adjusted),
+            topPadding = false,
+        ) {
+            adjusted.forEach { row ->
+                item {
+                    PkCalibrationRouteCard(
+                        row = row,
+                        shapesEstimate = row.route !in smallShareRoutes,
+                    )
+                }
+            }
+        }
+    }
+    if (population.isNotEmpty()) {
         if (adjusted.isNotEmpty()) {
-            HrtSection(
-                title = stringResource(R.string.calibration_pk_hero_adjusted),
-                topPadding = false,
-            ) {
-                adjusted.forEach { row ->
-                    item {
-                        PkCalibrationRouteCard(
-                            row = row,
-                            shapesEstimate = row.route !in smallShareRoutes,
-                        )
-                    }
-                }
-            }
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
         }
-        if (population.isNotEmpty()) {
-            if (adjusted.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.padding_medium)))
-            }
-            HrtSection(
-                title = stringResource(R.string.calibration_pk_hero_population),
-                topPadding = adjusted.isNotEmpty(),
-            ) {
-                population.forEach { row ->
-                    item { PkCalibrationRouteCard(row) }
-                }
+        HrtSection(
+            title = stringResource(R.string.calibration_pk_hero_population),
+            topPadding = adjusted.isNotEmpty(),
+        ) {
+            population.forEach { row ->
+                item { PkCalibrationRouteCard(row) }
             }
         }
     }
