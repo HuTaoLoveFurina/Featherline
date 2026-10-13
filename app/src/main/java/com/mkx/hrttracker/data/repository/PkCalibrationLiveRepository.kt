@@ -100,7 +100,7 @@ class PkCalibrationLiveRepository @Inject constructor(
 
     /**
      * True while a dose, lab or other data change is being re-solved; the
-     * calibration page holds its list and section until the rebuild lands.
+     * calibration page holds its lab adjustment section until the rebuild lands.
      * The rebuild's counter drops when its write returns, before [liveState]
      * has rendered the build it published, so this stays true until the
      * rendered result is the newest build. Only a forced build counts, as on

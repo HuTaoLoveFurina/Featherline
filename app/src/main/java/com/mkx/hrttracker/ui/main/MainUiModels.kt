@@ -45,7 +45,7 @@ import kotlin.math.roundToLong
 
 data class MainUiState(
     val homeDataReady: Boolean = false,
-    /** Shows the top updating indicator; the rest of the state is held until the rebuild lands. */
+    /** Shows the top updating indicator; the E2 hero and chart are held until the rebuild lands. */
     val isUpdating: Boolean = false,
     val e2TrendReady: Boolean = false,
     val homeSource: HomeInputSource? = null,

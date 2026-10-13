@@ -19,9 +19,12 @@ const val UPDATING_MIN_HOLD_MILLIS = 400L
  * Keeps the last settled value on screen while [isUpdating] says a rebuild is
  * landing, then releases the newest value once it settles, no sooner than
  * [minHoldMillis] after the screen was [visible] with the hold. The
- * intermediate values (a cleared snapshot's fallback, a section that has
- * re-solved while the list has not) never show, and the content changes
- * together with the indicator leaving.
+ * intermediate values (a cleared snapshot's fallback) never show, and the
+ * content changes together with the indicator leaving.
+ *
+ * Only what [merge] takes from the settled value is held: through a hold the
+ * screen shows [merge] of the settled value and the newest one, so the rest
+ * of it (a dose list, a lab list) shows a change at once.
  *
  * The consumers collect while their screen is covered, and a save from a
  * pushed screen starts the hold before the pop back. Timed from the start of
@@ -39,6 +42,7 @@ fun <T : Any> Flow<T>.holdWhileUpdating(
     visible: StateFlow<Boolean>,
     minHoldMillis: Long = UPDATING_MIN_HOLD_MILLIS,
     settled: T? = null,
+    merge: (held: T, latest: T) -> T,
     isUpdating: (T) -> Boolean,
 ): Flow<Held<T>> = channelFlow {
     var settled: T? = settled
@@ -51,7 +55,7 @@ fun <T : Any> Flow<T>.holdWhileUpdating(
                     visible.first { it }
                     delay(minHoldMillis)
                 }
-                send(Held(shown, isUpdating = true))
+                send(Held(merge(shown, value), isUpdating = true))
             }
         } else {
             if (!visible.value) minHold?.cancel()

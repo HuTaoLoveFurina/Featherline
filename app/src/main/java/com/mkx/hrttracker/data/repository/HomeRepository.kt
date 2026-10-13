@@ -655,7 +655,7 @@ data class HomeInputs(
     val homeAnchor: TrackedDate? = null,
     val source: HomeInputSource,
     val now: LocalDateTime,
-    /** A data change's rebuild is in flight; Home holds what it shows until it lands. */
+    /** A data change's rebuild is in flight; Home holds its E2 hero and chart until it lands. */
     val isRebuilding: Boolean = false,
 )
 

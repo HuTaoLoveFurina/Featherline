@@ -141,23 +141,19 @@ class MainViewModel @Inject constructor(
                     .map { inputs -> KeyedHomeInputs(key = key, inputs = inputs) }
             }
 
-        // Only the inputs are held while a data change's rebuild lands: they
-        // change together (doses, curve, band, hero). The display unit, fold
-        // state, notice, card layout and minute tick stay live through the hold.
-        val heldInputsFlow = combine(
-            keyedInputsFlow.holdWhileUpdating(screenVisible) { keyed -> keyed.inputs.isRebuilding },
+        val inputsAndUnitFlow = combine(
+            keyedInputsFlow,
             settingsRepository.settingsState,
-        ) { held, settings -> held to settings.homeE2DisplayUnit }
+        ) { keyedInputs, settings -> keyedInputs to settings.homeE2DisplayUnit }
         // The Home calibration presentation comes from the snapshot, so it is
         // on the first frame with the curve.
         val homeStateFlow = combine(
-            heldInputsFlow,
+            inputsAndUnitFlow,
             gatedSnapshot,
             timeZoneChangeNoticeController.notice,
             settingsRepository.homeLowStockSectionExpandedFlow,
             settingsRepository.homeLowStockAcknowledgedWarningStatesFlow,
-        ) { (held, homeE2DisplayUnit), timeSnapshot, timeZoneNotice, storedLowStockSectionExpanded, acknowledgedWarningStates ->
-            val keyedInputs = held.value
+        ) { (keyedInputs, homeE2DisplayUnit), timeSnapshot, timeZoneNotice, storedLowStockSectionExpanded, acknowledgedWarningStates ->
             if (!keyedInputs.key.matches(timeSnapshot)) {
                 return@combine null
             }
@@ -190,11 +186,26 @@ class MainViewModel @Inject constructor(
                         acknowledgedWarningStates = acknowledgedWarningStates,
                     ),
                     homeE2DisplayUnit = homeE2DisplayUnit,
-                    isUpdating = held.isUpdating,
                 )
             }
         }
             .filterNotNull()
+            // Only the E2 hero and chart are held while a data change's rebuild
+            // lands: curve, band and hero change together. The dose lists and
+            // the rest of Home show the change at once.
+            .holdWhileUpdating(
+                visible = screenVisible,
+                merge = { held, latest ->
+                    latest.copy(
+                        e2TrendReady = held.e2TrendReady,
+                        homeE2ChartWindowOption = held.homeE2ChartWindowOption,
+                        pkCalibration = held.pkCalibration,
+                        e2Hero = held.e2Hero,
+                        e2Chart = held.e2Chart,
+                    )
+                },
+            ) { state -> state.isUpdating }
+            .map { held -> held.value.copy(isUpdating = held.isUpdating) }
 
         return combine(
             homeStateFlow,
@@ -345,7 +356,6 @@ class MainViewModel @Inject constructor(
         timeZoneNotice: TimeZoneChangeNotice?,
         lowStockSectionExpanded: Boolean,
         homeE2DisplayUnit: BloodUnitKey,
-        isUpdating: Boolean,
     ): MainUiState {
         val chartWindowOption = inputs.settings.homeE2ChartWindowOption
         val homeEntries = (inputs.scheduleEntries + inputs.antiandrogenHistoryEntries)
@@ -419,7 +429,7 @@ class MainViewModel @Inject constructor(
 
         return MainUiState(
             homeDataReady = true,
-            isUpdating = isUpdating,
+            isUpdating = inputs.isRebuilding,
             e2TrendReady = e2TrendReady,
             homeSource = inputs.source,
             now = now,

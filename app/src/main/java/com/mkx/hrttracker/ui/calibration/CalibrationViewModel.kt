@@ -6,7 +6,6 @@ import com.mkx.hrttracker.data.repository.BloodTestRepository
 import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
 import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
 import com.mkx.hrttracker.data.repository.SettingsRepository
-import com.mkx.hrttracker.data.repository.toPkCalibrationLabs
 import com.mkx.hrttracker.model.bloodtest.BloodTestPanel
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.util.Held
@@ -34,30 +33,28 @@ class CalibrationViewModel @Inject constructor(
         MutableStateFlow<CalibrationDeleteAllEntriesResult?>(null)
     private val cachedPanels = bloodTestRepository.getCachedPanels()
 
-    // Seeded from the cached values so the section is in the first frame,
-    // and held when a rebuild is already in flight on entry. The two caches
-    // are independent: after a lab delete the panel cache is already updated
-    // while the solve is not, so the pair is seeded only when it is coherent
-    // (nothing in flight, or the solve used exactly the cached labs). Else the
-    // page stays loading until the first settled value.
-    private val seedData: CalibrationData? = run {
-        val live = pkCalibrationLiveRepository.liveState.value
-        val coherent = !pkCalibrationLiveRepository.updating.value ||
-            live?.live?.input?.labs == cachedPanels?.toPkCalibrationLabs()
-        CalibrationData(panels = cachedPanels, live = live, updating = false).takeIf { coherent }
+    // Seeded from the cached values so the section is in the first frame. A
+    // rebuild already in flight on entry holds the section on the last solve;
+    // before the first solve there is nothing to hold, and the page stays
+    // loading until the first settled value.
+    private val seedData: CalibrationData? = pkCalibrationLiveRepository.liveState.value?.let { live ->
+        CalibrationData(panels = cachedPanels, live = live, updating = false)
     }
 
     private val screenVisible = MutableStateFlow(false)
 
-    // The lab list and the lab adjustment section change together: a lab
-    // write holds both until its rebuild lands, so a new row never shows
-    // beside a section that has not re-solved yet.
+    // Only the lab adjustment section is held while a lab write's rebuild
+    // lands; the lab list shows the write at once.
     private val heldData: StateFlow<Held<CalibrationData>> = combine(
         bloodTestRepository.observePanels(),
         pkCalibrationLiveRepository.liveState,
         pkCalibrationLiveRepository.updating,
     ) { panels, live, updating -> CalibrationData(panels, live, updating) }
-        .holdWhileUpdating(screenVisible, settled = seedData) { data -> data.updating }
+        .holdWhileUpdating(
+            visible = screenVisible,
+            settled = seedData,
+            merge = { held, latest -> latest.copy(live = held.live) },
+        ) { data -> data.updating }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
@@ -177,7 +174,7 @@ data class CalibrationUiState(
     val panels: List<BloodTestPanel> = emptyList(),
     val settingsState: SettingsState = SettingsState(),
     val isLoading: Boolean = false,
-    /** Shows the top updating indicator; the list and section are held until the rebuild lands. */
+    /** Shows the top updating indicator; the lab adjustment section is held until the rebuild lands. */
     val isUpdating: Boolean = false,
     val isDeletingAllEntries: Boolean = false,
     val deleteAllEntriesResult: CalibrationDeleteAllEntriesResult? = null,
