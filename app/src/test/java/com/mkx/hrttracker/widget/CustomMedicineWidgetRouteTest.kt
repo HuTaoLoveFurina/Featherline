@@ -61,7 +61,6 @@ class CustomMedicineWidgetRouteTest {
             generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
             anchorDateEpochDay = now.toLocalDate().toEpochDay(),
             zoneId = zoneId.id,
-            pkProjection = null,
             widgetPkProjection = null,
             activeGroups = listOf(group),
             archivedGroups = emptyList(),

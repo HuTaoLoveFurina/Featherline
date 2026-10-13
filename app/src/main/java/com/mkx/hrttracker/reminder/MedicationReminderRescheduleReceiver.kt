@@ -90,7 +90,7 @@ internal fun handleReminderRescheduleBroadcast(
             )
             // Force a full refresh for events that leave the snapshot stale or invalid:
             // - TZ/time change: stored zoneId mismatches the new wall clock
-            // - Boot: projection may have expired while the device was off
+            // - Boot: the date may have moved while the device was off
             // - Package replaced: schema version bump silently rejects the old snapshot
             if (
                 action == Intent.ACTION_TIMEZONE_CHANGED ||

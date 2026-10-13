@@ -16,10 +16,13 @@ import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 class QuickLogActionCallback : ActionCallback {
 
@@ -28,6 +31,7 @@ class QuickLogActionCallback : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
+        val deadline = TimeSource.Monotonic.markNow() + HANDLE_BUDGET_MS.milliseconds
         val groupUuidStr = parameters[GroupUuidKey] ?: return
         val scheduleTimeUuidStr = parameters[ScheduleTimeUuidKey]
         val scheduledAtStr = parameters[ScheduledAtKey] ?: return
@@ -130,6 +134,16 @@ class QuickLogActionCallback : ActionCallback {
                     beforeStatesByUuid = beforeStockStates,
                     hideMedicationDetails = settingsRepository.getCurrentSettings().hideMedicationDetails,
                 )
+                // Finish only once the log's rebuild and its warm-up stored
+                // Home's estimate, so the next open shows it at once. Bounded
+                // by what is left of the budget; the rebuild itself carries on
+                // in the app scope.
+                val rebuilt = withTimeoutOrNull(-deadline.elapsedNow()) {
+                    entryPoint.homeSnapshotRepository().awaitRebuild()
+                }
+                if (rebuilt == null) {
+                    diagnosticsLogger.warning(TAG, "widget_quick_log_rebuild_timeout")
+                }
             } else {
                 diagnosticsLogger.info(
                     TAG,
@@ -176,6 +190,11 @@ class QuickLogActionCallback : ActionCallback {
 
     companion object {
         private const val TAG = "QuickLogActionCallback"
+
+        // The callback runs inside Glance's broadcast receiver, so inside the
+        // ~10s goAsync allowance, as in WidgetDateReceiver; the log itself is
+        // never cut short.
+        private const val HANDLE_BUDGET_MS = 8_000L
     }
 }
 

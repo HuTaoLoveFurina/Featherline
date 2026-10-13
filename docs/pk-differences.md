@@ -94,23 +94,23 @@ should read the upstream README and its `pk_research/` workspace.
   00:00. `projectionFutureDays()` adds a 10-day forward buffer beyond
   the visible future span, so the 30-day chart stores a 40-day
   projection while rendering only the 30-day visible window.
-  `HomeSnapshotRepository.snapshotUsabilityFailure` independently
-  recomputes the visible window and rejects cached snapshots whose
-  coverage or sampling fingerprint (`chartWindowHours`, dense policy,
-  post-dose-offset flag) does not match the selected option. Upstream
-  has no such contract because it has no cache.
-- **Projection cache bundled into home snapshot.** Two projection
-  records are bundled into `HomeSnapshotRecord` alongside the
-  plan-and-fulfillment cache: `pkProjection` (the chart's
-  option-sized projection — 7-day or 30-day visible window with the
-  forward buffer) and `widgetPkProjection` (a smaller projection
-  sized for the widget's E2 estimate, which has its own validity
-  window). Every home-data mutation re-simulates both, even when no
-  PK input changed. The leaky seam and its fallback path
-  (`MainViewModel` re-simulates the chart projection directly when
-  the cached expiry is on-or-before the live `now`) are documented
-  in
-  [`architecture.md#home-snapshot-and-pk-projection-cache`](architecture.md#home-snapshot-and-pk-projection-cache);
+  `PkProjectionResult.toMainEstradiolTrend` independently recomputes
+  the visible window and slices the chart only out of a projection
+  that covers it; the buffer is what lets an estimate held across
+  midnight still cover the next day's chart. Upstream has no such
+  contract because it has no cache.
+- **Home's estimate derived by key.** Home's curve, band and
+  calibration status are not cached with an expiry. `E2Derivation`
+  derives them from the E2 inputs the home snapshot carries (logged
+  doses, planned-dose sources, weight, chart option and the
+  calibration fit), and `E2EstimateRepository` reuses an estimate
+  only under the exact key it was derived for, deriving it again
+  whenever the key moves: a planned dose passing, midnight, or a data
+  change. There is no fallback simulation; see
+  [`architecture.md#home-snapshot-and-pk-projection-cache`](architecture.md#home-snapshot-and-pk-projection-cache).
+  The snapshot still bundles `widgetPkProjection` (a smaller
+  projection sized for the widget's E2 estimate, which has its own
+  validity window), rebuilt with every home-data mutation, and
   the widget consumes `widgetPkProjection` via
   [`WidgetSnapshotBuilder`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/widget/WidgetSnapshotBuilder.kt)
   with its own expiry check on the widget render path. Upstream has
@@ -683,8 +683,9 @@ The PK engine swap gates three deferred refactors, all enumerated in
   [`DoseInstructionCalculator`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/medication/DoseInstructionCalculator.kt)'s
   overlapping molecular-weight constants collapse into one source of
   truth.
-- Untangle the projection cache from `HomeSnapshotRepository` so PK
-  re-simulation isn't triggered by unrelated home mutations.
+- Untangle the calibration fit and the widget's projection from
+  `HomeSnapshotRepository` so unrelated home mutations stop
+  re-solving the calibration and re-simulating the widget's curve.
 
 ## Out of scope
 

@@ -26,12 +26,11 @@ import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
 import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
-import com.mkx.hrttracker.model.pk.PkCalibrationRenderer
 import com.mkx.hrttracker.model.pk.PkCalibrationResult
 import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
 import com.mkx.hrttracker.model.pk.PkRouteCalibrationResult
-import com.mkx.hrttracker.model.pk.PkConcentrationUnit
+import com.mkx.hrttracker.model.personalization.UserProfile
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import io.mockk.coEvery
@@ -56,9 +55,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -83,6 +79,7 @@ class HomeSnapshotRepositoryTest {
     private val homeSnapshotGenerationStore: HomeSnapshotGenerationStore = mockk()
     private val settingsRepository: SettingsRepository = mockk()
     private val diagnosticsLogger: AppDiagnosticsLogger = mockk(relaxed = true)
+    private val e2EstimateRepository: E2EstimateRepository = mockk(relaxed = true)
     private val generationState = MutableStateFlow(0L)
     private val chartWindowOptionState = MutableStateFlow(HomeE2ChartWindowOption.SEVEN_DAYS)
     private val settingsState = MutableStateFlow(SettingsState())
@@ -106,76 +103,6 @@ class HomeSnapshotRepositoryTest {
     }
 
     @Test
-    fun decodeProjection_returnsNullWhenProjectionExpired() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = HomeSnapshotRepository(
-            databaseHolder = databaseHolder,
-            homeSnapshotStore = homeSnapshotStore,
-            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
-            settingsRepository = settingsRepository,
-            appScope = CoroutineScope(dispatcher),
-            defaultDispatcher = dispatcher,
-        )
-        val zoneId = ZoneId.systemDefault()
-        val now = LocalDateTime.of(2026, 5, 7, 9, 0)
-        // Expiry was set at the previous planned slot (May 7 at 08:00).
-        val expiredAt = LocalDateTime.of(2026, 5, 7, 8, 0)
-            .atZone(zoneId).toInstant().toEpochMilli()
-        val record = HomePkProjectionRecord(
-            generatedAtEpochMillis = 0L,
-            windowStartEpochMillis = 0L,
-            windowEndEpochMillis = Long.MAX_VALUE,
-            pkProjectionExpiresAtEpochMillis = expiredAt,
-            concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-            timeH = emptyList(),
-            concentrations = emptyList(),
-            doseMarkers = emptyList(),
-            latestEstradiolEntry = null,
-            chartWindowHours = 168,
-            densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-            includesPostDoseOffsets = false,
-        )
-
-        assertNull(repository.decodeProjection(record, now, zoneId))
-        assertTrue(repository.isPkProjectionExpired(record, now, zoneId))
-    }
-
-    @Test
-    fun decodeProjection_returnsResultWhenProjectionStillValid() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = HomeSnapshotRepository(
-            databaseHolder = databaseHolder,
-            homeSnapshotStore = homeSnapshotStore,
-            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
-            settingsRepository = settingsRepository,
-            appScope = CoroutineScope(dispatcher),
-            defaultDispatcher = dispatcher,
-        )
-        val zoneId = ZoneId.systemDefault()
-        val now = LocalDateTime.of(2026, 5, 7, 7, 0)
-        // Expiry is one hour in the future.
-        val expiresAt = LocalDateTime.of(2026, 5, 7, 8, 0)
-            .atZone(zoneId).toInstant().toEpochMilli()
-        val record = HomePkProjectionRecord(
-            generatedAtEpochMillis = 0L,
-            windowStartEpochMillis = 0L,
-            windowEndEpochMillis = Long.MAX_VALUE,
-            pkProjectionExpiresAtEpochMillis = expiresAt,
-            concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-            timeH = emptyList(),
-            concentrations = emptyList(),
-            doseMarkers = emptyList(),
-            latestEstradiolEntry = null,
-            chartWindowHours = 168,
-            densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-            includesPostDoseOffsets = false,
-        )
-
-        assertNotNull(repository.decodeProjection(record, now, zoneId))
-        assertFalse(repository.isPkProjectionExpired(record, now, zoneId))
-    }
-
-    @Test
     fun invalidateHomeSnapshot_clearsStoredSnapshot() = runTest {
         coEvery { homeSnapshotStore.clearSnapshot() } returns Unit
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -183,6 +110,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -242,6 +170,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -274,6 +203,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -306,6 +236,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -343,6 +274,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -368,13 +300,14 @@ class HomeSnapshotRepositoryTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun forcedRequestJoiningABuild_marksItsWriteForced() = runTest {
+    fun forcedRequestJoiningABuild_marksItsBuildForced() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val builds = stubSlowEmptyRefreshInputs()
         val repository = HomeSnapshotRepository(
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -392,10 +325,9 @@ class HomeSnapshotRepositoryTest {
         launch.join()
         retry.join()
 
-        // One build, joined by the forced request: Home waits on its record
-        // and the calibration page on its render, whenever the join happened.
+        // One build, joined by the forced request: the calibration page waits
+        // on its render, whenever the join happened.
         assertEquals(1, builds.get())
-        assertEquals(true, repository.lastWrite.value?.forced)
         assertEquals(true, repository.calibrationBuilds.value?.forced)
     }
 
@@ -423,6 +355,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -529,6 +462,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -545,81 +479,202 @@ class HomeSnapshotRepositoryTest {
         }
 
         assertTrue(writtenSnapshot.isCaptured)
-        assertNull(writtenSnapshot.captured.pkCalibration)
-        assertTrue(writtenSnapshot.captured.pkRouteLogScale.isEmpty())
-        assertTrue(writtenSnapshot.captured.pkProjection != null)
+        assertEquals(FitOutcome.Failed, writtenSnapshot.captured.fit?.outcome)
+        assertTrue(writtenSnapshot.captured.widgetPkProjection != null)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun runHomeDataMutation_namesSupportedRoutesWhenTheBandRenderThrows() = runTest {
-        // The curve is simulated with displayParams before the band render, so
-        // a throwing render (no band) must not flip the hero to "population"
-        // over a personalized curve.
+    fun retryCalibration_reSolvesWithARaisedEpoch_fromUnchangedInputs() = runTest {
+        // Try again after a failed solve: the inputs are the same, so only
+        // the epoch tells the estimates the fit is new. It is a gated change.
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val writtenSnapshot = slot<HomeSnapshotRecord>()
+        val written = mutableListOf<HomeSnapshotRecord>()
         stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
         coEvery { homeSnapshotStore.clearSnapshot() } returns Unit
-        coEvery { homeSnapshotStore.writeSnapshot(capture(writtenSnapshot)) } returns Unit
+        coEvery { homeSnapshotStore.writeSnapshot(any()) } coAnswers { written += firstArg<HomeSnapshotRecord>() }
         val repository = HomeSnapshotRepository(
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
             diagnosticsLogger = diagnosticsLogger,
         )
-        val rows = PkCalibrationRoute.entries.map { route ->
-            if (route == PkCalibrationRoute.INJECTION) {
-                PkRouteCalibrationResult(
-                    route = route,
-                    displayState = PkRouteCalibrationDisplayState.LAB_CALIBRATED,
-                    fittedBeta = 0.2,
-                    betaPosteriorSd = 0.1,
-                    supportingLabCount = 2,
-                )
-            } else {
-                PkRouteCalibrationResult(
-                    route = route,
-                    displayState = PkRouteCalibrationDisplayState.POPULATION_NO_LAB_SIGNAL,
-                )
-            }
-        }
-        val evaluation = PkCalibrationEvaluation(
-            PkCalibrationResult(PkCalibrationGlobalState.READY, rows),
-            evidence = null,
-        )
-
-        mockkObject(PkCalibrationEngine, PkCalibrationRenderer)
+        var solves = 0
+        mockkObject(PkCalibrationEngine)
         try {
-            every { PkCalibrationEngine.evaluate(any()) } returns evaluation
-            // The band renders from the fit, as E2Derivation does.
-            every {
-                PkCalibrationRenderer.render(
-                    result = any(),
-                    originEpochMillis = any(),
-                    weightKg = any(),
-                    config = any(),
-                    domain = any(),
-                    doseEvents = any(),
-                    statusRange = any(),
-                )
-            } throws IllegalStateException("render")
+            every { PkCalibrationEngine.evaluate(any()) } answers {
+                if (solves++ == 0) throw IllegalStateException("solver") else readyEvaluation()
+            }
             repository.runHomeDataMutation { }
-            awaitRebuild(testScheduler) { writtenSnapshot.isCaptured }
+            awaitRebuild(testScheduler) { written.size == 1 }
+
+            repository.retryCalibration()
+            assertEquals(2L, generationState.value)
+            assertTrue(repository.forcedRebuildInFlight.first())
+            awaitRebuild(testScheduler) { written.size == 2 }
         } finally {
-            unmockkObject(PkCalibrationEngine, PkCalibrationRenderer)
+            unmockkObject(PkCalibrationEngine)
         }
 
-        val record = checkNotNull(writtenSnapshot.captured.pkCalibration)
-        assertEquals(
-            setOf(PkCalibrationRoute.INJECTION.stableId),
-            writtenSnapshot.captured.pkRouteLogScale.keys,
+        assertEquals(FitOutcome.Failed, written[0].fit?.outcome)
+        assertEquals(0, written[0].fit?.epoch)
+        assertTrue(written[1].fit?.outcome is FitOutcome.Solved)
+        assertEquals(1, written[1].fit?.epoch)
+        assertEquals(written[0].fit?.fitId, written[1].fit?.fitId)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun retryCalibration_survivesTheBuildItInterrupts() = runTest {
+        // The build in flight when Try again lands read the old epoch and is
+        // dropped by the generation bump; the retry's own build writes the new
+        // one, and only a written build warms Home's estimate.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val written = mutableListOf<HomeSnapshotRecord>()
+        val builds = stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(100L, 0L))
+        coEvery { homeSnapshotStore.clearSnapshot() } returns Unit
+        coEvery { homeSnapshotStore.writeSnapshot(any()) } coAnswers { written += firstArg<HomeSnapshotRecord>() }
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher + SupervisorJob()),
+            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
+            diagnosticsLogger = diagnosticsLogger,
         )
-        assertTrue(record.adjusted)
-        assertFalse(record.renderUnavailable)
-        assertTrue(writtenSnapshot.captured.pkBandKnots.isEmpty())
+
+        val interrupted = launch(dispatcher) { repository.refreshHomeSnapshotIfNeeded(force = true) }
+        runCurrent() // its build has read the epoch and is loading
+        repository.retryCalibration()
+        interrupted.join()
+        awaitRebuild(testScheduler) { written.isNotEmpty() && builds.get() == 2 }
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, written.size)
+        assertEquals(1, written.single().fit?.epoch)
+        coVerify(exactly = 1) { e2EstimateRepository.warmHome() }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun requestedFitEpoch_startsAtTheStoredFits_andOutlivesAMutationsClear() = runTest {
+        // Try again in an earlier process left epoch 3. An ordinary build must
+        // keep it, or a stock edit would move every estimate key.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val written = mutableListOf<HomeSnapshotRecord>()
+        stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
+        var stored: HomeSnapshotRecord? = homeSnapshotRecord(generation = 0L, now = LocalDateTime.of(2026, 5, 7, 9, 0))
+            .copy(fit = E2FitRecord(Digest("00"), epoch = 3, outcome = FitOutcome.Failed))
+        coEvery { homeSnapshotStore.readSnapshot() } answers { stored }
+        coEvery { homeSnapshotStore.clearSnapshot() } answers { stored = null }
+        coEvery { homeSnapshotStore.writeSnapshot(any()) } coAnswers { written += firstArg<HomeSnapshotRecord>() }
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher + SupervisorJob()),
+            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
+            diagnosticsLogger = diagnosticsLogger,
+        )
+
+        // The first thing this process does is a mutation, which clears the
+        // snapshot before any build has read the epoch.
+        repository.runHomeDataMutation { }
+        awaitRebuild(testScheduler) { written.size == 1 }
+        repository.retryCalibration()
+        awaitRebuild(testScheduler) { written.size == 2 }
+
+        assertEquals(listOf(3, 4), written.map { record -> record.fit?.epoch })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun aBuildEndsWithTheWarmUp_andAwaitRebuildWaitsForIt() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val events = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val allowWarmUp = CompletableDeferred<Unit>()
+        stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
+        coEvery { homeSnapshotStore.clearSnapshot() } returns Unit
+        coEvery { homeSnapshotStore.writeSnapshot(any()) } coAnswers { events += "write" }
+        coEvery { e2EstimateRepository.warmHome() } coAnswers {
+            events += "warm"
+            allowWarmUp.await()
+        }
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher + SupervisorJob()),
+            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
+            diagnosticsLogger = diagnosticsLogger,
+        )
+
+        repository.runHomeDataMutation { }
+        val awaiting = async(dispatcher) { repository.awaitRebuild() }
+        awaitRebuild(testScheduler) { "warm" in events }
+
+        assertEquals(listOf("write", "warm"), events.toList())
+        assertFalse(awaiting.isCompleted)
+        allowWarmUp.complete(Unit)
+        awaitRebuild(testScheduler) { awaiting.isCompleted }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun aBuildsWarmUp_storesHomesKey_soAColdStartRightAfterShowsIt() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
+        val records = MutableStateFlow<HomeSnapshotRecord?>(null)
+        every { homeSnapshotStore.observeSnapshot() } returns records
+        coEvery { homeSnapshotStore.readSnapshot() } answers { records.value }
+        coEvery { homeSnapshotStore.clearSnapshot() } answers { records.value = null }
+        coEvery { homeSnapshotStore.writeSnapshot(any()) } answers { records.value = firstArg() }
+        var stored: HomeE2EstimateRecord? = null
+        val estimateStore = mockk<HomeE2EstimateStore> {
+            coEvery { read() } answers { stored }
+            coEvery { write(any()) } answers { stored = firstArg() }
+        }
+        val clock = java.time.Clock.systemDefaultZone()
+        lateinit var estimates: E2EstimateRepository
+        val repository = HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { estimates },
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher + SupervisorJob()),
+            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
+            diagnosticsLogger = diagnosticsLogger,
+        )
+        estimates = E2EstimateRepository(
+            homeSnapshotRepository = repository,
+            store = estimateStore,
+            clock = clock,
+            appScope = CoroutineScope(dispatcher + SupervisorJob()),
+            defaultDispatcher = dispatcher,
+        )
+
+        repository.runHomeDataMutation { }
+        awaitRebuild(testScheduler) { stored != null }
+
+        val record = checkNotNull(records.value)
+        val now = LocalDateTime.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MINUTES)
+        assertEquals(E2Derivation.homeEstimateKey(record.e2Inputs(), now, ZoneId.systemDefault()), stored?.key)
+        val firstStates = mutableListOf<E2State<HomeE2Estimate>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            estimates.observeHome(MutableStateFlow(now)).collect { state -> firstStates += state }
+        }
+        assertEquals(stored?.estimate, firstStates.first().value)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -670,6 +725,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -707,6 +763,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -729,6 +786,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -791,6 +849,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(appDispatcher),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
@@ -805,11 +864,9 @@ class HomeSnapshotRepositoryTest {
         repository.runHomeDataMutation {
             mutationCommitted.complete(Unit)
         }
-        // The caller is back before the rebuild; Home sees it in flight so it
-        // holds the skeleton rather than flashing a population curve.
+        // The caller is back before the rebuild, which is already counted.
         assertTrue(repository.rebuildInFlight.first())
         assertTrue(repository.forcedRebuildInFlight.first())
-        assertNull(repository.lastWrite.value)
         awaitRebuild(appScheduler) { written }
         // The in-flight count drops once the refresh coroutine unwinds.
         appScheduler.advanceUntilIdle()
@@ -817,18 +874,8 @@ class HomeSnapshotRepositoryTest {
         coVerify(exactly = 1) { homeSnapshotStore.writeSnapshot(any()) }
         assertFalse(repository.rebuildInFlight.first())
         assertFalse(repository.forcedRebuildInFlight.first())
-        // Consumers compare their observed snapshot against this: the counters
-        // can drop before the written record reaches them.
-        val lastWrite = requireNotNull(repository.lastWrite.value)
-        assertEquals(generationState.value, lastWrite.generation)
-        assertTrue(lastWrite.forced)
-        // The calibration page waits on forced builds the same way.
+        // The calibration page waits on forced builds.
         assertEquals(true, repository.calibrationBuilds.value?.forced)
-        // The next generation bump drops it even when the clear fails, so a
-        // failed rebuild is not waited on.
-        coEvery { homeSnapshotStore.clearSnapshot() } throws IOException("simulated DataStore failure")
-        runCatching { repository.invalidateHomeSnapshot() }
-        assertNull(repository.lastWrite.value)
 
         // Home's launch request is not a forced rebuild: no updating indicator.
         repository.refreshHomeSnapshotAsync(force = false)
@@ -850,6 +897,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -883,6 +931,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -904,6 +953,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -924,6 +974,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -953,6 +1004,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             appScope = CoroutineScope(
                 SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, throwable ->
                     failures += throwable
@@ -969,202 +1021,72 @@ class HomeSnapshotRepositoryTest {
         assertTrue(failures.isEmpty())
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun keptUsableSnapshot_stillRebuildsWhenItsPlannedSlotPasses() = runTest {
-        // After a process restart the startup refresh keeps a still-valid
-        // snapshot, so no write schedules the expiry timer. The kept snapshot
-        // must arm it itself, or the band stays gone once its planned slot
-        // passes until the next mutation or date change.
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val builds = stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
+    fun isSnapshotUsable_isTheSchemaEngineZoneAndDateWindow_withoutPkOrChartOption() = runTest {
+        val anchorDate = LocalDate.of(2026, 5, 6)
         val zoneId = ZoneId.systemDefault()
-        val now = LocalDateTime.of(2026, 5, 7, 7, 0)
-        val plannedAt = now.plusHours(1).atZone(zoneId).toInstant().toEpochMilli()
-        coEvery { homeSnapshotStore.readSnapshot() } returns HomeSnapshotRecord(
-            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
-            generation = 0L,
-            generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
-            anchorDateEpochDay = now.toLocalDate().toEpochDay(),
-            zoneId = zoneId.id,
-            pkProjection = HomePkProjectionRecord(
-                generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
-                windowStartEpochMillis = now.toLocalDate().minusDays(3)
-                    .atStartOfDay(zoneId).toInstant().toEpochMilli(),
-                windowEndEpochMillis = now.toLocalDate().plusDays(14)
-                    .atStartOfDay(zoneId).toInstant().toEpochMilli(),
-                pkProjectionExpiresAtEpochMillis = plannedAt,
-                concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-                timeH = emptyList(),
-                concentrations = emptyList(),
-                doseMarkers = emptyList(),
-                latestEstradiolEntry = null,
-                chartWindowHours = 168,
-                densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-                includesPostDoseOffsets = false,
-            ),
-            activeGroups = emptyList(),
-            scheduleEntries = emptyList(),
-            antiandrogenHistoryEntries = emptyList(),
-        )
         val repository = HomeSnapshotRepository(
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
-            appScope = CoroutineScope(dispatcher + SupervisorJob()),
-            defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
-            diagnosticsLogger = diagnosticsLogger,
+            appScope = CoroutineScope(StandardTestDispatcher(testScheduler)),
+            defaultDispatcher = StandardTestDispatcher(testScheduler),
         )
+        // A 30-day record with no widget projection: neither matters any more.
+        val snapshot = homeSnapshotRecord(generation = 0L, now = anchorDate.atTime(10, 15))
+            .copy(option = HomeE2ChartWindowOption.THIRTY_DAYS)
 
-        repository.refreshHomeSnapshotIfNeeded(now = now, force = false, zoneId = zoneId)
-        runCurrent()
-        assertEquals(0, builds.get())
-
-        // Just before the slot: still armed, nothing built.
-        advanceTimeBy(60L * 60L * 1_000L - 1L)
-        runCurrent()
-        assertEquals(0, builds.get())
-
-        advanceTimeBy(2L)
-        runCurrent()
-        // The build's DAO reads run on Dispatchers.IO, outside virtual time.
-        withContext(Dispatchers.Default) {
-            withTimeout(5_000L) { while (builds.get() == 0) delay(10L) }
-        }
-        assertEquals(1, builds.get())
+        assertTrue(repository.isSnapshotUsable(snapshot, anchorDate.plusDays(10).atTime(23, 59), zoneId))
+        assertFalse(repository.isSnapshotUsable(snapshot, anchorDate.plusDays(11).atTime(0, 0), zoneId))
+        assertFalse(repository.isSnapshotUsable(snapshot, anchorDate.minusDays(1).atTime(23, 59), zoneId))
+        assertFalse(
+            repository.isSnapshotUsable(snapshot, anchorDate.atTime(12, 0), ZoneId.of(if (zoneId.id == "UTC") "Asia/Tokyo" else "UTC"))
+        )
+        // The fit, and every estimate keyed on it, are another engine's.
+        assertFalse(
+            repository.isSnapshotUsable(snapshot.copy(engineVersion = PK_ENGINE_VERSION + 1), anchorDate.atTime(12, 0), zoneId)
+        )
+        assertFalse(
+            repository.isSnapshotUsable(
+                snapshot.copy(schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION - 1),
+                anchorDate.atTime(12, 0),
+                zoneId,
+            )
+        )
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun usableSnapshotFromAnEarlierDay_rebuildsOnlyWhenItCarriesACalibrationBadge() = runTest {
-        // The badge is judged over the build day's visible window; the chart
-        // moves on each day while the snapshot stays usable, so a calibrated
-        // one is rebuilt rather than kept.
-        val builds = stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L, 0L))
-        val zoneId = ZoneId.systemDefault()
+    fun aStoredRecordFromAnotherEngine_isRebuiltByTheLaunchRequest() = runTest {
+        // An app update with a PK refit keeps the snapshot otherwise usable;
+        // the launch request skips a usable one, so the engine check is what
+        // makes it rebuild instead of showing the old engine's fit.
+        val builds = stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
         val now = LocalDateTime.of(2026, 5, 7, 7, 0)
-        val anchorDate = now.toLocalDate().minusDays(1)
-        val windowEnd = anchorDate.plusDays(14).atStartOfDay(zoneId).toInstant().toEpochMilli()
-        val yesterdays = HomeSnapshotRecord(
-            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
-            generation = 0L,
-            generatedAtEpochMillis = anchorDate.atTime(10, 0).atZone(zoneId).toInstant().toEpochMilli(),
-            anchorDateEpochDay = anchorDate.toEpochDay(),
-            zoneId = zoneId.id,
-            pkProjection = HomePkProjectionRecord(
-                generatedAtEpochMillis = anchorDate.atTime(10, 0).atZone(zoneId).toInstant().toEpochMilli(),
-                windowStartEpochMillis = anchorDate.minusDays(3)
-                    .atStartOfDay(zoneId).toInstant().toEpochMilli(),
-                windowEndEpochMillis = windowEnd,
-                pkProjectionExpiresAtEpochMillis = windowEnd,
-                concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-                timeH = emptyList(),
-                concentrations = emptyList(),
-                doseMarkers = emptyList(),
-                latestEstradiolEntry = null,
-                chartWindowHours = 168,
-                densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-                includesPostDoseOffsets = false,
-            ),
-            activeGroups = emptyList(),
-            scheduleEntries = emptyList(),
-            antiandrogenHistoryEntries = emptyList(),
-        )
+        val current = homeSnapshotRecord(generation = 0L, now = now)
         val repository = HomeSnapshotRepository(
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()),
             defaultDispatcher = UnconfinedTestDispatcher(testScheduler),
             diagnosticsLogger = diagnosticsLogger,
         )
-        assertTrue(repository.isSnapshotUsable(yesterdays, now, zoneId, HomeE2ChartWindowOption.SEVEN_DAYS))
 
-        coEvery { homeSnapshotStore.readSnapshot() } returns yesterdays
-        repository.refreshHomeSnapshotIfNeeded(now = now, force = false, zoneId = zoneId)
-        runCurrent()
+        coEvery { homeSnapshotStore.readSnapshot() } returns current
+        repository.refreshHomeSnapshotIfNeeded(now = now, force = false)
         assertEquals(0, builds.get())
 
-        coEvery { homeSnapshotStore.readSnapshot() } returns yesterdays.copy(
-            pkCalibration = HomePkCalibrationRecord(
-                adjusted = true,
-                limitedConfidence = false,
-                renderUnavailable = false,
-                bandUnavailable = false,
-                effectiveRoutes = listOf("oral"),
-            ),
-        )
-        repository.refreshHomeSnapshotIfNeeded(now = now, force = false, zoneId = zoneId)
-        runCurrent()
-        withContext(Dispatchers.Default) {
-            withTimeout(5_000L) { while (builds.get() == 0) delay(10L) }
-        }
+        coEvery { homeSnapshotStore.readSnapshot() } returns current.copy(engineVersion = PK_ENGINE_VERSION + 1)
+        repository.refreshHomeSnapshotIfNeeded(now = now, force = false)
         assertEquals(1, builds.get())
-    }
-
-    @Test
-    fun isSnapshotUsable_acceptsTenDayOldSnapshotWhenProjectionCoversCurrentChart() = runTest {
-        val anchorDate = LocalDate.of(2026, 5, 6)
-        val now = anchorDate.plusDays(10).atTime(23, 59)
-        val zoneId = ZoneId.systemDefault()
-        val repository = HomeSnapshotRepository(
-            databaseHolder = databaseHolder,
-            homeSnapshotStore = homeSnapshotStore,
-            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
-            settingsRepository = settingsRepository,
-            appScope = CoroutineScope(StandardTestDispatcher(testScheduler)),
-            defaultDispatcher = StandardTestDispatcher(testScheduler),
-        )
-        val snapshot = HomeSnapshotRecord(
-            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
-            generation = 0L,
-            generatedAtEpochMillis = anchorDate.atTime(10, 15)
-                .atZone(zoneId)
-                .toInstant()
-                .toEpochMilli(),
-            anchorDateEpochDay = anchorDate.toEpochDay(),
-            zoneId = zoneId.id,
-            pkProjection = HomePkProjectionRecord(
-                generatedAtEpochMillis = anchorDate.atTime(10, 15)
-                    .atZone(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                windowStartEpochMillis = anchorDate.minusDays(3)
-                    .atStartOfDay(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                windowEndEpochMillis = anchorDate.plusDays(14)
-                    .atStartOfDay(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                pkProjectionExpiresAtEpochMillis = anchorDate.plusDays(14)
-                    .atStartOfDay(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-                timeH = emptyList(),
-                concentrations = emptyList(),
-                doseMarkers = emptyList(),
-                latestEstradiolEntry = null,
-                chartWindowHours = 168,
-                densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-                includesPostDoseOffsets = false,
-            ),
-            activeGroups = emptyList(),
-            scheduleEntries = emptyList(),
-            antiandrogenHistoryEntries = emptyList(),
-        )
-
-        assertTrue(
-            repository.isSnapshotUsable(
-                snapshot = snapshot,
-                now = now,
-                zoneId = zoneId,
-                option = HomeE2ChartWindowOption.SEVEN_DAYS,
-            )
-        )
+        val written = slot<HomeSnapshotRecord>()
+        coVerify(exactly = 1) { homeSnapshotStore.writeSnapshot(capture(written)) }
+        assertEquals(PK_ENGINE_VERSION, written.captured.engineVersion)
     }
 
     @Test
@@ -1226,6 +1148,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -1250,14 +1173,15 @@ class HomeSnapshotRepositoryTest {
         )
         assertEquals(
             expectedProjectionWindowEnd,
-            checkNotNull(writtenSnapshot.captured.pkProjection).windowEndEpochMillis,
+            checkNotNull(writtenSnapshot.captured.widgetPkProjection).windowEndEpochMillis,
         )
     }
 
     @Test
-    fun buildSnapshot_stampsBothProjectionsWithTheBuildTime_andTheWidgetsWithSevenDays() = runTest {
-        // Home's 30-day option no longer reaches the widget, and the derived
-        // projections carry no generation time: the records take the build's.
+    fun buildSnapshot_storesWhatHomesEstimateIsDerivedFrom_andTheWidgetsSevenDays() = runTest {
+        // Home's estimate is no longer in the record: the record carries the
+        // option, the fit, the labs and the real profile it is derived from.
+        // Home's 30-day option does not reach the widget.
         chartWindowOptionState.value = HomeE2ChartWindowOption.THIRTY_DAYS
         val now = LocalDateTime.of(2026, 5, 6, 10, 15)
         val zoneId = ZoneId.systemDefault()
@@ -1270,21 +1194,20 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
         ).refreshHomeSnapshotIfNeeded(now = now, force = true, zoneId = zoneId)
 
-        val nowMillis = now.atZone(zoneId).toInstant().toEpochMilli()
-        val home = checkNotNull(writtenSnapshot.captured.pkProjection)
-        val widget = checkNotNull(writtenSnapshot.captured.widgetPkProjection)
-        assertEquals(nowMillis, home.generatedAtEpochMillis)
-        assertEquals(720, home.chartWindowHours)
-        assertEquals(home.windowEndEpochMillis, home.pkProjectionExpiresAtEpochMillis)
-        assertEquals(nowMillis, widget.generatedAtEpochMillis)
-        assertEquals(168, widget.chartWindowHours)
-        assertEquals(HomeE2ChartWindowOption.SEVEN_DAYS.densePolicy.toRecord(), widget.densePolicy)
-        assertFalse(widget.includesPostDoseOffsets)
+        val record = writtenSnapshot.captured
+        assertEquals(PK_ENGINE_VERSION, record.engineVersion)
+        assertEquals(HomeE2ChartWindowOption.THIRTY_DAYS, record.option)
+        assertNotNull(record.fit)
+        assertEquals(0, record.fit?.epoch)
+        assertEquals(UserProfile(), record.userProfile)
+        val widget = checkNotNull(record.widgetPkProjection)
+        assertEquals(now.atZone(zoneId).toInstant().toEpochMilli(), widget.generatedAtEpochMillis)
         assertEquals(
             now.toLocalDate().minusDays(3).atStartOfDay(zoneId).toInstant().toEpochMilli(),
             widget.windowStartEpochMillis,
@@ -1348,6 +1271,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -1418,6 +1342,7 @@ class HomeSnapshotRepositoryTest {
                 databaseHolder = databaseHolder,
                 homeSnapshotStore = homeSnapshotStore,
                 homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+                e2EstimateRepository = { e2EstimateRepository },
                 settingsRepository = settingsRepository,
                 appScope = CoroutineScope(dispatcher),
                 defaultDispatcher = dispatcher,
@@ -1500,6 +1425,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -1573,6 +1499,7 @@ class HomeSnapshotRepositoryTest {
             databaseHolder = databaseHolder,
             homeSnapshotStore = homeSnapshotStore,
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            e2EstimateRepository = { e2EstimateRepository },
             settingsRepository = settingsRepository,
             appScope = CoroutineScope(dispatcher),
             defaultDispatcher = dispatcher,
@@ -1611,37 +1538,21 @@ class HomeSnapshotRepositoryTest {
             generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
             anchorDateEpochDay = now.toLocalDate().toEpochDay(),
             zoneId = zoneId.id,
-            pkProjection = HomePkProjectionRecord(
-                generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
-                windowStartEpochMillis = now.toLocalDate()
-                    .minusDays(3)
-                    .atStartOfDay(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                windowEndEpochMillis = now.toLocalDate()
-                    .plusDays(14)
-                    .atStartOfDay(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                pkProjectionExpiresAtEpochMillis = now.toLocalDate()
-                    .plusDays(14)
-                    .atStartOfDay(zoneId)
-                    .toInstant()
-                    .toEpochMilli(),
-                concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-                timeH = emptyList(),
-                concentrations = emptyList(),
-                doseMarkers = emptyList(),
-                latestEstradiolEntry = null,
-                chartWindowHours = 168,
-                densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-                includesPostDoseOffsets = false,
-            ),
             activeGroups = emptyList(),
             scheduleEntries = emptyList(),
             antiandrogenHistoryEntries = emptyList(),
         )
     }
+
+    private fun readyEvaluation() = PkCalibrationEvaluation(
+        PkCalibrationResult(
+            PkCalibrationGlobalState.READY,
+            PkCalibrationRoute.entries.map { route ->
+                PkRouteCalibrationResult(route, PkRouteCalibrationDisplayState.POPULATION_NO_LAB_SIGNAL)
+            },
+        ),
+        evidence = null,
+    )
 
     private fun groupWithTwoSlotsReferencing(medicineUuid: UUID): MedicationGroupWithItemsEntity {
         val groupUuid = UUID.fromString("44bff3cb-b4dd-4be4-9eda-442cf91185c1").toString()

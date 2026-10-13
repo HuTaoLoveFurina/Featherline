@@ -3,7 +3,6 @@ package com.mkx.hrttracker.widget
 import android.content.Context
 import com.mkx.hrttracker.R
 import com.mkx.hrttracker.data.repository.HOME_SNAPSHOT_SCHEMA_VERSION
-import com.mkx.hrttracker.data.repository.HomePkDenseSamplePolicyRecord
 import com.mkx.hrttracker.data.repository.HomePkProjectionDoseMarkerRecord
 import com.mkx.hrttracker.data.repository.HomePkProjectionRecord
 import com.mkx.hrttracker.data.repository.HomeSnapshotRecord
@@ -177,10 +176,6 @@ class WidgetSnapshotBuilderTest {
                     isPlanned = false
                 )
             ),
-            latestEstradiolEntry = null,
-            chartWindowHours = 168,
-            densePolicy = HomePkDenseSamplePolicyRecord.Interval(0.5),
-            includesPostDoseOffsets = false,
         )
 
         val widget = buildWidgetSnapshotRecord(
@@ -370,7 +365,6 @@ class WidgetSnapshotBuilderTest {
         now: LocalDateTime,
         activeGroups: List<MedicationGroup> = emptyList(),
         archivedGroups: List<MedicationGroup> = emptyList(),
-        pkProjection: HomePkProjectionRecord? = null,
         widgetPkProjection: HomePkProjectionRecord? = null,
     ): HomeSnapshotRecord {
         return HomeSnapshotRecord(
@@ -378,7 +372,6 @@ class WidgetSnapshotBuilderTest {
             generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
             anchorDateEpochDay = now.toLocalDate().toEpochDay(),
             zoneId = zoneId.id,
-            pkProjection = pkProjection,
             widgetPkProjection = widgetPkProjection,
             activeGroups = activeGroups,
             archivedGroups = archivedGroups,

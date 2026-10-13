@@ -7,8 +7,8 @@ package com.mkx.hrttracker.model.pk
  * cache: visible past/future spans, the dense-sample policy, and whether to
  * inject post-dose offsets for absorption-phase fidelity. The projection span
  * adds a fixed [MainChartProjectionFutureBufferDays] beyond the visible
- * future window so a cached snapshot can serve subsequent days without
- * forcing a re-simulation.
+ * future window so a projection still covers the chart on the following days:
+ * the widget's, and a Home estimate held across midnight.
  */
 enum class HomeE2ChartWindowOption(
     val pastDays: Long,

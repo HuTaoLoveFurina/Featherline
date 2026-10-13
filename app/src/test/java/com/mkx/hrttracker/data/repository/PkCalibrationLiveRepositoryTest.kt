@@ -10,7 +10,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import java.time.Instant
 import java.time.Clock
 import java.time.ZoneOffset
@@ -103,7 +102,7 @@ class PkCalibrationLiveRepositoryTest {
     }
 
     @Test
-    fun snapshotBuild_isRenderedInsteadOfSolvedAgain_andRetryForcesARebuild() = runTest {
+    fun snapshotBuild_isRenderedInsteadOfSolvedAgain_andRetryRaisesTheFitEpoch() = runTest {
         stubEmptySourceReads()
         val repository = repository(backgroundScope, StandardTestDispatcher(testScheduler))
         val collector = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
@@ -143,8 +142,11 @@ class PkCalibrationLiveRepositoryTest {
         runCurrent()
         assertNull(requireNotNull(repository.liveState.value).live)
 
+        // Try again is a gated change that raises the fit epoch, so Home's
+        // estimate is derived again too.
         repository.retry()
-        verify(exactly = 1) { homeSnapshots.refreshHomeSnapshotAsync(any(), force = true, any()) }
+        runCurrent()
+        coVerify(exactly = 1) { homeSnapshots.retryCalibration() }
         collector.cancel()
     }
 

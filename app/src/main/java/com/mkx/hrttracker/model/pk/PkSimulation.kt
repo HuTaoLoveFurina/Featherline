@@ -391,9 +391,10 @@ object PkMedicationSimulation {
     // Returned `windowStart` and `windowEnd` MUST equal
     // `windowDate.atStartOfDay().minusDays(mainChartPastDays)` and
     // `windowDate.plusDays(futureDays).atStartOfDay()` (in `zoneId`).
-    // `HomeSnapshotRepository.snapshotUsabilityFailure` recomputes those bounds
-    // independently and rejects snapshots whose stored window doesn't cover the
-    // chart window — so changing this rounding silently invalidates every cache.
+    // `PkProjectionResult.toMainEstradiolTrend` recomputes those bounds
+    // independently and slices the chart only out of a projection that covers
+    // it (a held estimate relies on that across midnight) — so changing this
+    // rounding silently blanks Home's chart.
     fun simulateMainEstradiolProjection(
         entries: List<MedicationLogEntry>,
         bodyWeightKg: Double?,

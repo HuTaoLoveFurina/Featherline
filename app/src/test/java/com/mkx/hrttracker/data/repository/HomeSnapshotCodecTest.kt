@@ -23,8 +23,11 @@ import com.mkx.hrttracker.model.medication.MedicineStock
 import com.mkx.hrttracker.model.medication.testCustomMedicine
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
+import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
+import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
+import com.mkx.hrttracker.model.pk.PkCalibrationLab
 import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
 import com.mkx.hrttracker.model.pk.PkCalibrationPromotedCovariance
 import com.mkx.hrttracker.model.pk.PkCalibrationReason
@@ -40,9 +43,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.nio.ByteBuffer
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -56,7 +62,6 @@ class HomeSnapshotCodecTest {
         generatedAtEpochMillis = 1L,
         anchorDateEpochDay = 0L,
         zoneId = "Asia/Tokyo",
-        pkProjection = null,
         activeGroups = emptyList(),
         scheduleEntries = emptyList(),
         antiandrogenHistoryEntries = emptyList(),
@@ -107,35 +112,66 @@ class HomeSnapshotCodecTest {
     }
 
     @Test
-    fun encodeDecode_roundTripsCalibrationRouteLogScale_andDecodesToPersonalParams() {
-        // The projections were simulated with these betas; a snapshot that lost
-        // them would make Home re-simulate at population and flash on expiry.
+    fun encodeDecode_roundTripsWhatTheEstimatesAreDerivedFrom() {
+        // Codec 28: the record carries the fit, the labs and review metadata
+        // it was solved from, the option and the engine, so the estimate can
+        // be derived from the record alone.
+        val latestEntry = testMedicationLogEntry(
+            uuid = UUID.fromString("65c7a865-df3a-4ed3-9e60-1ae6af7b6bd3"),
+            medicine = testMedicine(uuid = UUID.fromString("11111111-1111-1111-1111-111111111111")),
+            sourceGroupUuid = null,
+            appliedAt = Instant.ofEpochMilli(1_777_777L),
+        )
         val record = minimalRecord().copy(
-            pkRouteLogScale = mapOf("injection" to 0.25, "oral" to -0.1, "unknown-route" to 1.0),
-            pkBandKnots = listOf(
-                HomePkBandKnotRecord(1_700_000_000_000L, 60.0, 80.0, 100.0, 125.0, 160.0, segment = 0),
-                HomePkBandKnotRecord(1_700_021_600_000L, 55.0, 75.0, 95.0, 120.0, 150.0, segment = 1),
+            engineVersion = PK_ENGINE_VERSION,
+            latestEstradiolEntry = latestEntry,
+            option = HomeE2ChartWindowOption.THIRTY_DAYS,
+            fit = E2FitRecord(
+                fitId = Digest("ab".repeat(32)),
+                epoch = 2,
+                outcome = FitOutcome.Solved(calibrationResult(), originEpochMillis = 1_700_000_000_000L),
             ),
-            pkCalibration = HomePkCalibrationRecord(
-                adjusted = true,
-                limitedConfidence = true,
-                renderUnavailable = false,
-                bandUnavailable = false,
-                effectiveRoutes = listOf("injection"),
+            labs = listOf(
+                PkCalibrationLab(UUID(0L, 1L), collectedAtEpochMillis = 1_700_000_000_000L, valuePgml = 130.0),
+                PkCalibrationLab(UUID(0L, 2L), collectedAtEpochMillis = 1_700_600_000_000L, valuePgml = -1.0),
+            ),
+            labMetadata = listOf(
+                E2CalibrationMetadata(UUID(0L, 1L), E2CalibrationDisposition.REVIEWED, Instant.ofEpochMilli(5L)),
+                E2CalibrationMetadata(UUID(0L, 2L), E2CalibrationDisposition.EXCLUDED, Instant.ofEpochMilli(6L)),
             ),
         )
+
         val decoded = HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(record))
-        assertEquals(record.pkRouteLogScale, decoded.pkRouteLogScale)
-        assertEquals(record.pkBandKnots, decoded.pkBandKnots)
-        assertEquals(record.pkCalibration, decoded.pkCalibration)
-        assertNull(HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(minimalRecord())).pkCalibration)
-        assertEquals(100.0, decoded.pkBandKnots().first().p50Pgml, 0.0)
-        assertEquals(listOf(0, 1), decoded.pkBandKnots().map { knot -> knot.segment })
-        val params = decoded.pkPersonalParams()
-        assertEquals(0.25, params.logScaleFor(com.mkx.hrttracker.model.pk.PkCalibrationRoute.INJECTION), 0.0)
-        assertEquals(-0.1, params.logScaleFor(com.mkx.hrttracker.model.pk.PkCalibrationRoute.ORAL), 0.0)
-        assertEquals(2, params.routeLogScale.size)
-        assertEquals(emptyMap<String, Double>(), HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(minimalRecord())).pkRouteLogScale)
+
+        assertEquals(record, decoded)
+        val failed = record.copy(fit = record.fit?.copy(outcome = FitOutcome.Failed))
+        assertEquals(failed, HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(failed)))
+        assertEquals(minimalRecord(), HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(minimalRecord())))
+    }
+
+    @Test
+    fun aCodec27File_readsAsMissing() = runTest {
+        // An install updated from codec 27 has no record until a build
+        // writes one: the skip-check sees none and rebuilds.
+        val crypto = object : HomeSnapshotCrypto {
+            override fun encrypt(plaintext: ByteArray): ByteArray = plaintext
+            override fun decrypt(ciphertext: ByteArray): ByteArray = ciphertext
+        }
+        val serializer = EncryptedRecordSerializer(
+            crypto = crypto,
+            name = "home_snapshot",
+            encode = HomeSnapshotCodec::encode,
+            decode = HomeSnapshotCodec::decode,
+        )
+        val codec27 = HomeSnapshotCodec.encode(minimalRecord()).also { bytes ->
+            ByteBuffer.wrap(bytes).putInt(0, 27)
+        }
+
+        assertNull(serializer.readFrom(ByteArrayInputStream(codec27)).record)
+        assertEquals(
+            minimalRecord(),
+            serializer.readFrom(ByteArrayInputStream(HomeSnapshotCodec.encode(minimalRecord()))).record,
+        )
     }
 
     @Test
@@ -226,10 +262,6 @@ class HomeSnapshotCodecTest {
                     concentration = 20.0,
                 )
             ),
-            latestEstradiolEntry = latestEntry,
-            chartWindowHours = 168,
-            densePolicy = HomePkDenseSamplePolicyRecord.Interval(hours = 0.1),
-            includesPostDoseOffsets = false,
         )
         val record = HomeSnapshotRecord(
             schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
@@ -237,7 +269,7 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = pkRecord,
+            widgetPkProjection = pkRecord,
             activeGroups = listOf(group),
             scheduleEntries = listOf(latestEntry),
             antiandrogenHistoryEntries = listOf(antiandrogenEntry),
@@ -272,6 +304,7 @@ class HomeSnapshotCodecTest {
                     scheduledFor = latestEntry.scheduledFor,
                 )
             ),
+            latestEstradiolEntry = latestEntry,
         )
 
         val decoded = HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(record))
@@ -339,7 +372,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = emptyList(),
             antiandrogenHistoryEntries = emptyList(),
@@ -380,7 +412,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = listOf(
                 MedicationGroup(
                     uuid = UUID.fromString("9aaaaaaa-0000-0000-0000-000000000010"),
@@ -428,7 +459,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = listOf(
                 MedicationGroup(
                     uuid = UUID.fromString("8aaaaaaa-0000-0000-0000-000000000010"),
@@ -483,7 +513,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = listOf(
                 MedicationGroup(
                     uuid = UUID.fromString("8aaaaaaa-0000-0000-0000-000000000030"),
@@ -556,7 +585,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = emptyList(),
             antiandrogenHistoryEntries = emptyList(),
@@ -582,7 +610,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = listOf(
                 testMedicationLogEntry(
@@ -606,7 +633,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = listOf(
                 testMedicationLogEntry(
@@ -652,7 +678,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = emptyList(),
             antiandrogenHistoryEntries = emptyList(),
@@ -678,7 +703,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = emptyList(),
             antiandrogenHistoryEntries = emptyList(),
@@ -748,39 +772,6 @@ class HomeSnapshotCodecTest {
     }
 
     @Test
-    fun encodeDecode_roundTripsBudgetDenseSamplePolicy() {
-        val pkRecord = HomePkProjectionRecord(
-            generatedAtEpochMillis = 10L,
-            windowStartEpochMillis = 20L,
-            windowEndEpochMillis = 30L,
-            pkProjectionExpiresAtEpochMillis = 25L,
-            concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-            timeH = listOf(0.0),
-            concentrations = listOf(0.0),
-            doseMarkers = emptyList(),
-            latestEstradiolEntry = null,
-            chartWindowHours = 720,
-            densePolicy = HomePkDenseSamplePolicyRecord.Budget(segmentCount = 2240),
-            includesPostDoseOffsets = true,
-        )
-        val record = HomeSnapshotRecord(
-            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
-            generation = 1L,
-            generatedAtEpochMillis = 100L,
-            anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
-            zoneId = "Asia/Tokyo",
-            pkProjection = pkRecord,
-            activeGroups = emptyList(),
-            scheduleEntries = emptyList(),
-            antiandrogenHistoryEntries = emptyList(),
-        )
-
-        val decoded = HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(record))
-
-        assertEquals(record, decoded)
-    }
-
-    @Test
     fun fit_roundTripsEveryCalibrationResultField_andFailed() {
         val solved = E2FitRecord(
             fitId = Digest("ab".repeat(32)),
@@ -828,6 +819,7 @@ class HomeSnapshotCodecTest {
                 zoneId = "Asia/Tokyo",
             ),
             estimate = HomeE2Estimate(
+                option = HomeE2ChartWindowOption.THIRTY_DAYS,
                 projection = PkProjectionResult(
                     windowStart = Instant.ofEpochMilli(1_000L),
                     windowEnd = Instant.ofEpochMilli(2_000L),
@@ -924,7 +916,6 @@ class HomeSnapshotCodecTest {
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            pkProjection = null,
             activeGroups = emptyList(),
             scheduleEntries = emptyList(),
             antiandrogenHistoryEntries = emptyList(),

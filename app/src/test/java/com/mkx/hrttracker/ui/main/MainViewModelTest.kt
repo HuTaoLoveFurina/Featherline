@@ -1,5 +1,10 @@
 package com.mkx.hrttracker.ui.main
 
+import androidx.lifecycle.Lifecycle
+import com.mkx.hrttracker.data.repository.E2EstimateRepository
+import com.mkx.hrttracker.data.repository.E2Pending
+import com.mkx.hrttracker.data.repository.E2State
+import com.mkx.hrttracker.data.repository.HomeE2Estimate
 import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
 import com.mkx.hrttracker.data.repository.HomeInputSource
 import com.mkx.hrttracker.data.repository.HomeInputs
@@ -29,7 +34,7 @@ import com.mkx.hrttracker.model.medication.RunwayProjection
 import com.mkx.hrttracker.model.medication.testMedicationGroupMedication
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
-import com.mkx.hrttracker.model.personalization.UserProfile
+import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkConcentrationUnit
 import com.mkx.hrttracker.model.pk.PkMedicationSimulation
 import com.mkx.hrttracker.model.pk.PkProjectionResult
@@ -52,7 +57,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -75,6 +82,14 @@ class MainViewModelTest {
     private val pkCalibrationLiveRepository = mockk<PkCalibrationLiveRepository> {
         every { liveState } returns MutableStateFlow(null)
     }
+
+    // The estimator's state: each observation, a restart included, starts
+    // from its current value, as the repository's cold start does.
+    private val homeEstimates = MutableStateFlow(E2State<HomeE2Estimate>(null))
+    private val e2EstimateRepository = mockk<E2EstimateRepository> {
+        every { observeHome(any()) } returns homeEstimates
+    }
+    private val processLifecycleState = MutableStateFlow(Lifecycle.State.STARTED)
 
     private val homeRepository: HomeRepository = mockk()
     private val settingsRepository: SettingsRepository = mockk()
@@ -115,6 +130,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -171,6 +188,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -210,6 +229,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -230,6 +251,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -258,6 +281,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -284,6 +309,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -333,6 +360,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -358,6 +387,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -382,6 +413,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 9, 0)),
             defaultDispatcher = dispatcher,
         )
@@ -404,6 +437,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 9, 0)),
             defaultDispatcher = dispatcher,
         )
@@ -425,6 +460,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 9, 0)),
             defaultDispatcher = dispatcher,
         )
@@ -450,6 +487,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -503,6 +542,8 @@ class MainViewModelTest {
                 settingsRepository = settingsRepository,
                 timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
                 appTimeSource = appTimeSource,
                 defaultDispatcher = dispatcher,
             )
@@ -548,18 +589,17 @@ class MainViewModelTest {
         val zoneId = ZoneId.systemDefault()
         val appTimeSource = FakeAppTimeSource(firstMinute)
         every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(
-            homeInputs(
-                now = firstMinute,
-                pkProjection = linearProjectionFor(firstMinute.toLocalDate(), zoneId),
-                trendResult = null,
-            )
+            homeInputs(now = firstMinute)
         )
+        homeEstimates.value = E2State(estimate(linearProjectionFor(firstMinute.toLocalDate(), zoneId)))
 
         val viewModel = MainViewModel(
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -593,6 +633,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -630,21 +672,18 @@ class MainViewModelTest {
             homeInputs(
                 now = now,
                 activeGroups = listOf(medicationGroup()),
-                trendResult = PkTrendResult(
-                    currentConcentration = 124.0,
-                    previousDayConcentration = 100.0,
-                    dailyConcentrations = listOf(80.0, 92.0, 100.0, 124.0),
-                    concentrationUnit = PkConcentrationUnit.PG_PER_ML,
-                ),
                 source = HomeInputSource.SNAPSHOT,
             )
         )
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
 
         val viewModel = MainViewModel(
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -654,6 +693,7 @@ class MainViewModelTest {
         assertEquals(true, viewModel.uiState.value.homeDataReady)
         assertEquals(HomeInputSource.SNAPSHOT, viewModel.uiState.value.homeSource)
         assertEquals(true, viewModel.uiState.value.splashReady)
+        assertTrue(viewModel.uiState.value.hasE2Estimate)
         assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
         assertEquals(LocalDate.of(2026, 4, 30), viewModel.uiState.value.todaySection.date)
     }
@@ -670,6 +710,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -708,6 +750,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -721,7 +765,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun rebuildHold_keepsTheE2DataInTheLiveUnit_andShowsTheRestAtOnce() = runTest {
+    fun userChangeHold_keepsTheE2DataInTheLiveUnit_andShowsTheRestAtOnce() = runTest {
         val now = LocalDateTime.of(2026, 4, 30, 12, 0)
         val settings = MutableStateFlow(SettingsState())
         every { settingsRepository.settingsState } returns settings
@@ -733,37 +777,29 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
         viewModel.setScreenVisible(true)
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
         startUiStateCollection(viewModel)
         advanceUntilIdle()
-
-        inputs.emit(
-            homeInputs(
-                now = now,
-                trendResult = PkTrendResult(
-                    currentConcentration = 124.0,
-                    previousDayConcentration = 100.0,
-                    dailyConcentrations = listOf(80.0, 92.0, 100.0, 124.0),
-                    concentrationUnit = PkConcentrationUnit.PG_PER_ML,
-                ),
-            )
-        )
+        inputs.emit(homeInputs(now = now))
         advanceUntilIdle()
-        // A write lands mid-rebuild: its stock warning shows at once, the
-        // default 100 pg/mL curve standing in for the rebuild does not, and a
-        // unit switch converts the held value.
-        inputs.emit(
-            homeInputs(now = now, stockWarnings = listOf(stockWarningProjection()))
-                .copy(isRebuilding = true)
-        )
+
+        // A write lands and its estimate is being derived: its stock warning
+        // shows at once, the held estimate stays, and a unit switch converts
+        // the held value.
+        homeEstimates.value = homeEstimates.value.copy(pending = E2Pending.USER)
+        inputs.emit(homeInputs(now = now, stockWarnings = listOf(stockWarningProjection())))
         settings.value = SettingsState(homeE2DisplayUnit = BloodUnitKey.NG_DL)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertTrue(state.isUpdating)
+        assertTrue(state.hasE2Estimate)
         assertEquals(1, state.stockWarnings.size)
         assertEquals("ng/dL", state.e2Hero.unit)
         assertEquals(12.4, state.e2Hero.currentValue, 1e-9)
@@ -781,6 +817,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -797,7 +835,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun roomInputWithoutProjectionComputesE2FallbackFromRoomEntries() = runTest {
+    fun roomInput_takesTheLastDoseFromRoom_andTheValueFromTheEstimate() = runTest {
         val now = LocalDateTime.of(2026, 4, 30, 12, 0)
         val latestEstradiolEntry = MedicationLogEntry(
             uuid = UUID.fromString("9b24ff3a-fc93-4fd1-8760-81a9ae8eae04"),
@@ -815,17 +853,18 @@ class MainViewModelTest {
             homeInputs(
                 now = now,
                 source = HomeInputSource.ROOM,
-                trendResult = null,
                 latestEstradiolEntry = latestEstradiolEntry,
-                estradiolPkEntries = listOf(latestEstradiolEntry),
             )
         )
+        homeEstimates.value = E2State(estimate(trend(current = 100.0), now))
 
         val viewModel = MainViewModel(
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -837,7 +876,7 @@ class MainViewModelTest {
             latestEstradiolEntry.appliedAt.atZone(ZoneId.systemDefault()).toLocalDateTime(),
             viewModel.uiState.value.e2Hero.lastDoseAt,
         )
-        assertTrue(viewModel.uiState.value.e2Hero.currentValue > 0.0)
+        assertEquals(100.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
     }
 
     @Test
@@ -877,9 +916,7 @@ class MainViewModelTest {
             homeInputs(
                 now = now,
                 source = HomeInputSource.ROOM,
-                trendResult = null,
                 latestEstradiolEntry = staleLatestEntry,
-                estradiolPkEntries = listOf(staleLatestEntry, laterTodayEntry),
                 scheduleEntries = listOf(laterTodayEntry),
             )
         )
@@ -889,6 +926,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -899,27 +938,14 @@ class MainViewModelTest {
     }
 
     @Test
-    fun expiredProjectionFallsBackToRoomTrendAgainstLiveNow() = runTest {
-        // Sanity: HomeInputs carries a non-null pkProjection (currentConcentration 100)
-        // but pkProjectionExpiresAt is in the past relative to `now`. The
-        // MainViewModel must drop the stale curve and fall back to
-        // simulateMainEstradiolTrend, which against empty real+planned entries
-        // produces zero — so the hero current value must be 0, not 100.
+    fun withoutAnEstimate_theE2CardsShowTheSkeleton_neverALocalCurve() = runTest {
+        // The incident: Home used to re-simulate a curve of its own (at the
+        // default weight, without its band) when the stored one expired. With
+        // no estimate for the current key there is nothing to draw but the
+        // skeleton; the rest of Home renders.
         val now = LocalDateTime.of(2026, 4, 30, 12, 0)
-        val zoneId = ZoneId.systemDefault()
-        val expiredAt = now.minusHours(1).atZone(zoneId).toInstant()
-        val appTimeSource = FakeAppTimeSource(now)
         every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(
-            homeInputs(
-                now = now,
-                trendResult = PkTrendResult(
-                    currentConcentration = 100.0,
-                    previousDayConcentration = 90.0,
-                    dailyConcentrations = listOf(70.0, 80.0, 90.0, 100.0),
-                    concentrationUnit = PkConcentrationUnit.PG_PER_ML,
-                ),
-                pkProjectionExpiresAt = expiredAt,
-            )
+            homeInputs(now = now, activeGroups = listOf(medicationGroup()))
         )
 
         val viewModel = MainViewModel(
@@ -927,58 +953,21 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
-            appTimeSource = appTimeSource,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
+            appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
         startUiStateCollection(viewModel)
         advanceUntilIdle()
 
-        assertEquals(0.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
-    }
-
-    @Test
-    fun pastDuePlannedEntryIsFilteredFromTrendFallback() = runTest {
-        // A planned virtual entry whose scheduledFor is in the past relative to
-        // live `now` must NOT flow into the trend simulator — the user didn't
-        // take it, so the curve must not include its contribution.
-        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
-        val pastDuePlanned = MedicationLogEntry(
-            uuid = UUID.fromString("aaaaaaaa-1111-2222-3333-444444444444"),
-            medicine = testMedicine(key = MedicationKey.ESTRADIOL),
-            category = MedicationCategory.ESTRADIOL,
-            applicationType = MedicationApplicationType.ORAL,
-            doseInstruction = DoseInstruction.TabletFraction(1, 1),
-            equivalentE2Mg = null,
-            sourceGroupUuid = UUID.fromString("bbbbbbbb-1111-2222-3333-444444444444"),
-            appliedAt = Instant.parse("2026-04-30T01:00:00Z"),
-            appliedAtTimeZoneId = "UTC",
-            scheduledFor = now.minusHours(1),
-            scheduleTimeUuid = UUID.fromString("cccccccc-1111-2222-3333-444444444444"),
-        )
-        val appTimeSource = FakeAppTimeSource(now)
-        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(
-            homeInputs(
-                now = now,
-                source = HomeInputSource.ROOM,
-                trendResult = null,
-                estradiolPkEntries = emptyList(),
-                estradiolPkPlannedEntries = listOf(pastDuePlanned),
-            )
-        )
-
-        val viewModel = MainViewModel(
-            homeRepository = homeRepository,
-            settingsRepository = settingsRepository,
-            timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
-            appTimeSource = appTimeSource,
-            defaultDispatcher = dispatcher,
-        )
-        startUiStateCollection(viewModel)
-        advanceUntilIdle()
-
-        // Empty real + filtered planned = trend has no doses → currentValue == 0.
-        assertEquals(0.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+        val state = viewModel.uiState.value
+        assertTrue(state.homeDataReady)
+        assertFalse(state.hasE2Estimate)
+        assertFalse(state.isUpdating)
+        assertNull(state.pkCalibration)
+        assertEquals(0.0, state.e2Hero.currentValue, 1e-9)
+        assertEquals(LocalDate.of(2026, 4, 30), state.todaySection.date)
     }
 
     @Test
@@ -1007,6 +996,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -1042,6 +1033,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1071,6 +1064,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1100,6 +1095,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1136,6 +1133,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1175,6 +1174,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1204,6 +1205,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1238,6 +1241,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1272,6 +1277,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1304,6 +1311,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1338,6 +1347,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1375,6 +1386,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1437,6 +1450,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1489,6 +1504,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
             defaultDispatcher = dispatcher,
         )
@@ -1520,6 +1537,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -1598,6 +1617,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -1657,6 +1678,8 @@ class MainViewModelTest {
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
             pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+            e2EstimateRepository = e2EstimateRepository,
+            processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
             defaultDispatcher = dispatcher,
         )
@@ -1707,6 +1730,247 @@ class MainViewModelTest {
         }
     }
 
+    @Test
+    fun theFirstState_waitsForTheEstimatorsLoad_soAMatchingEstimateIsInIt() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        val load = MutableSharedFlow<E2State<HomeE2Estimate>>()
+        every { e2EstimateRepository.observeHome(any()) } returns load
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.homeDataReady)
+
+        load.emit(E2State(estimate(trend(current = 124.0), now)))
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.homeDataReady)
+        assertTrue(viewModel.uiState.value.hasE2Estimate)
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    @Test
+    fun coldStart_withoutAnEstimate_showsTheSkeleton_untilItIsDerived() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(null, E2Pending.SYSTEM)
+
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.homeDataReady)
+        assertFalse(viewModel.uiState.value.hasE2Estimate)
+        assertFalse(viewModel.uiState.value.isUpdating)
+
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.hasE2Estimate)
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    @Test
+    fun aReturnToTheForeground_restartsTheObservation_whichStopsInTheBackground() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        assertEquals(1, homeEstimates.subscriptionCount.value)
+
+        processLifecycleState.value = Lifecycle.State.CREATED
+        advanceUntilIdle()
+        assertEquals(0, homeEstimates.subscriptionCount.value)
+
+        processLifecycleState.value = Lifecycle.State.STARTED
+        advanceUntilIdle()
+        assertEquals(1, homeEstimates.subscriptionCount.value)
+        verify(exactly = 2) { e2EstimateRepository.observeHome(any()) }
+    }
+
+    @Test
+    fun aReturn_afterTheKeyMoved_dropsTheEstimateAtOnce_beforeAnyStateIsRebuilt() = runTest {
+        // Unconfined Main: the lifecycle event and everything it resumes on
+        // Main run inline, as on the main thread; the rebuilt ui state needs
+        // the (standard) default dispatcher, so it is what a frame could beat.
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.hasE2Estimate)
+
+        // A slot passed while away and nothing warmed the new key: the
+        // restarted observation has no value.
+        processLifecycleState.value = Lifecycle.State.CREATED
+        advanceUntilIdle()
+        homeEstimates.value = E2State(null, E2Pending.SYSTEM)
+        processLifecycleState.value = Lifecycle.State.STARTED
+        assertFalse(viewModel.uiState.value.hasE2Estimate)
+        assertNull(viewModel.uiState.value.pkCalibration)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.hasE2Estimate)
+        homeEstimates.value = E2State(estimate(trend(current = 150.0), now))
+        advanceUntilIdle()
+        assertEquals(150.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+
+        // A background job warmed the moved key: the warmed estimate is in
+        // the same pass, before the first frame, with no skeleton frame in
+        // between, and the stale one never comes back.
+        processLifecycleState.value = Lifecycle.State.CREATED
+        advanceUntilIdle()
+        homeEstimates.value = E2State(estimate(trend(current = 170.0), now))
+        val states = mutableListOf<MainUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state -> states += state }
+        }
+        processLifecycleState.value = Lifecycle.State.STARTED
+        assertTrue(viewModel.uiState.value.hasE2Estimate)
+        assertEquals(170.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+        advanceUntilIdle()
+        assertEquals(170.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+        assertTrue(
+            states.drop(1).none { state ->
+                state.hasE2Estimate && state.e2Hero.currentValue != 170.0
+            }
+        )
+    }
+
+    @Test
+    fun aReturn_withAMatchingKey_showsTheEstimate_withoutASkeletonFrame() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        val states = mutableListOf<MainUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state -> states += state }
+        }
+
+        processLifecycleState.value = Lifecycle.State.CREATED
+        advanceUntilIdle()
+        processLifecycleState.value = Lifecycle.State.STARTED
+        advanceUntilIdle()
+
+        assertTrue(states.isNotEmpty())
+        assertTrue(states.all { state -> state.hasE2Estimate })
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    @Test
+    fun aUserChange_holdsTheEstimateWithTheIndicator_forTheMinimumHoldCountedFromVisibility() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+
+        // Saved from a screen covering Home: the hold starts, but its minimum
+        // waits for Home to be visible.
+        homeEstimates.value = homeEstimates.value.copy(pending = E2Pending.USER)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.isUpdating)
+        advanceTimeBy(1_000L)
+        viewModel.setScreenVisible(true)
+        runCurrent()
+        advanceTimeBy(100L)
+        homeEstimates.value = E2State(estimate(trend(current = 150.0), now))
+        runCurrent()
+        assertTrue(viewModel.uiState.value.isUpdating)
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+
+        advanceTimeBy(250L)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.isUpdating)
+        advanceTimeBy(100L)
+        runCurrent()
+        assertFalse(viewModel.uiState.value.isUpdating)
+        assertEquals(150.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    @Test
+    fun aUserChange_thatLandsWhileHomeIsCovered_isReleasedAtOnce() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+
+        homeEstimates.value = homeEstimates.value.copy(pending = E2Pending.USER)
+        runCurrent()
+        homeEstimates.value = E2State(estimate(trend(current = 150.0), now))
+        runCurrent()
+
+        assertFalse(viewModel.uiState.value.isUpdating)
+        assertEquals(150.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    @Test
+    fun theClockOrTheSystemMovingTheEstimate_swapsItSilently() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        viewModel.setScreenVisible(true)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        val states = mutableListOf<MainUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state -> states += state }
+        }
+
+        homeEstimates.value = homeEstimates.value.copy(pending = E2Pending.SYSTEM)
+        advanceUntilIdle()
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+        homeEstimates.value = E2State(estimate(trend(current = 150.0), now))
+        advanceUntilIdle()
+
+        assertEquals(150.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+        assertTrue(states.none { state -> state.isUpdating || !state.hasE2Estimate })
+    }
+
+    @Test
+    fun anEditTheEstimateDoesntRead_showsNoIndicator() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        val inputs = MutableStateFlow(homeInputs(now = now))
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns inputs
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        viewModel.setScreenVisible(true)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+        val states = mutableListOf<MainUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state -> states += state }
+        }
+
+        // A stock recount: the lists change, the estimate's key does not.
+        inputs.value = homeInputs(now = now, stockWarnings = listOf(stockWarningProjection()))
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.stockWarnings.size)
+        assertTrue(states.none { state -> state.isUpdating })
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    private fun viewModel(now: LocalDateTime) = MainViewModel(
+        homeRepository = homeRepository,
+        settingsRepository = settingsRepository,
+        timeZoneChangeNoticeController = timeZoneChangeNoticeController,
+        pkCalibrationLiveRepository = pkCalibrationLiveRepository,
+        e2EstimateRepository = e2EstimateRepository,
+        processLifecycleState = processLifecycleState,
+        appTimeSource = FakeAppTimeSource(now),
+        defaultDispatcher = dispatcher,
+    )
+
     private fun TestScope.startUiStateCollection(viewModel: MainViewModel) {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             viewModel.uiState.collect { }
@@ -1717,17 +1981,7 @@ class MainViewModelTest {
         now: LocalDateTime = LocalDateTime.of(2026, 4, 30, 12, 0),
         activeGroups: List<MedicationGroup> = emptyList(),
         settings: SettingsState = SettingsState(),
-        trendResult: PkTrendResult? = PkTrendResult(
-            currentConcentration = 100.0,
-            previousDayConcentration = 90.0,
-            dailyConcentrations = listOf(70.0, 80.0, 90.0, 100.0),
-            concentrationUnit = PkConcentrationUnit.PG_PER_ML,
-        ),
-        pkProjection: PkProjectionResult? = null,
-        pkProjectionExpiresAt: Instant? = null,
         latestEstradiolEntry: MedicationLogEntry? = null,
-        estradiolPkEntries: List<MedicationLogEntry> = emptyList(),
-        estradiolPkPlannedEntries: List<MedicationLogEntry> = emptyList(),
         scheduleEntries: List<MedicationLogEntry> = emptyList(),
         stockWarnings: List<MedicineStockProjection> = emptyList(),
         homeAnchor: TrackedDate? = null,
@@ -1737,19 +1991,30 @@ class MainViewModelTest {
             activeGroups = activeGroups,
             scheduleEntries = scheduleEntries,
             antiandrogenHistoryEntries = emptyList(),
-            profile = UserProfile(weightKg = 60.0),
             settings = settings,
-            pkProjection = pkProjection ?: trendResult?.toProjection(now),
-            pkProjectionExpiresAt = pkProjectionExpiresAt,
             latestEstradiolEntry = latestEstradiolEntry,
-            estradiolPkEntries = estradiolPkEntries,
-            estradiolPkPlannedEntries = estradiolPkPlannedEntries,
             stockWarnings = stockWarnings,
             homeAnchor = homeAnchor,
             source = source,
             now = now,
         )
     }
+
+    private fun trend(current: Double) = PkTrendResult(
+        currentConcentration = current,
+        previousDayConcentration = 100.0,
+        dailyConcentrations = listOf(80.0, 92.0, 100.0, current),
+        concentrationUnit = PkConcentrationUnit.PG_PER_ML,
+    )
+
+    private fun estimate(trend: PkTrendResult, now: LocalDateTime) = estimate(trend.toProjection(now))
+
+    private fun estimate(projection: PkProjectionResult) = HomeE2Estimate(
+        option = HomeE2ChartWindowOption.SEVEN_DAYS,
+        projection = projection,
+        bandKnots = emptyList(),
+        calibration = null,
+    )
 
     private fun PkTrendResult.toProjection(now: LocalDateTime): PkProjectionResult {
         val zoneId = ZoneId.systemDefault()

@@ -79,6 +79,8 @@ data class E2Inputs(
 
 /** Home's curve, band and calibration status. */
 data class HomeE2Estimate(
+    /** The chart window it covers: [HomeEstimateKey.option]. */
+    val option: HomeE2ChartWindowOption,
     val projection: PkProjectionResult,
     /** The READY band over the projection window; empty otherwise. */
     val bandKnots: List<HomePkBandKnotRecord>,
@@ -161,7 +163,7 @@ object E2Derivation {
             personalParams = displayParams(inputs.fit),
         )
         val solved = inputs.fit?.outcome as? FitOutcome.Solved
-            ?: return HomeE2Estimate(projection, bandKnots = emptyList(), calibration = null)
+            ?: return HomeE2Estimate(inputs.option, projection, bandKnots = emptyList(), calibration = null)
         // The band follows the same projected curve as the chart: the same
         // logged plus planned doses, over the projection window. The fit
         // itself used the full dose history.
@@ -186,6 +188,7 @@ object E2Derivation {
             }
         }.onFailure(onBandFailure).getOrNull()
         return HomeE2Estimate(
+            option = inputs.option,
             projection = projection,
             bandKnots = render
                 ?.takeIf { it.bandState == PkCalibrationBandState.READY }

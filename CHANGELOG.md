@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- After a planned dose's time passes, opening the app no longer shows an estradiol curve that looks like the population estimate, or the calibrated curve without its prediction interval. Home now works the estimate out again whenever the time, your data or the chart window moves it, usually in the background before you open the app.
+
+### Changed
+
+- Edits that can't change the estimate, such as recounting stock, renaming a medicine, logging an antiandrogen dose or pinning a Journal date, no longer show the refresh indicator under the top bar on Home.
+- After a change that moves the estimate, such as logging an estradiol dose or switching the chart between 7 and 30 days, the refresh indicator on Home appears once the new data is ready, a moment after the tap, instead of right away.
+- When you come back to the app after the estimate has moved, for example after a planned dose's time passed with reminders off, the estradiol card and chart can show a loading placeholder for a moment before the new estimate appears.
+
 ## [1.4.2] - 2026-10-14
 
 ### Fixed

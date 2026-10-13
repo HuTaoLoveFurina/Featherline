@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class PkCalibrationLive(
@@ -56,7 +57,7 @@ class PkCalibrationLiveRepository @Inject constructor(
     private val homeSnapshotRepository: HomeSnapshotRepository,
     private val clock: Clock,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
-    @AppScope appScope: CoroutineScope,
+    @param:AppScope private val appScope: CoroutineScope,
     private val diagnosticsLogger: AppDiagnosticsLogger = AppDiagnosticsLogger(),
 ) {
     private val retryVersion = MutableStateFlow(0L)
@@ -103,9 +104,9 @@ class PkCalibrationLiveRepository @Inject constructor(
      * calibration page holds its lab adjustment section until the rebuild lands.
      * The rebuild's counter drops when its write returns, before [liveState]
      * has rendered the build it published, so this stays true until the
-     * rendered result is the newest build. Only a forced build counts, as on
-     * Home: a launch, date-change or expiry build landing while the page is
-     * open re-renders without the indicator. The build's forced flag is
+     * rendered result is the newest build. Only a forced build counts: a
+     * launch or date-change build landing while the page is open re-renders
+     * without the indicator. The build's forced flag is
      * observed, so a forced request joining after publication promotes it
      * here even if its brief counter transition is conflated away.
      */
@@ -118,10 +119,21 @@ class PkCalibrationLiveRepository @Inject constructor(
     ) { forced, forcedBuild, live -> forced || (forcedBuild != null && live?.build !== forcedBuild) }
         .stateIn(scope = appScope, started = SharingStarted.Eagerly, initialValue = false)
 
-    /** Re-solves: a forced snapshot rebuild publishes a new build to render. */
+    /**
+     * Re-solves: Try again raises the fit epoch, and the rebuild publishes a
+     * new build to render. The epoch also re-derives Home's estimate.
+     */
     fun retry() {
         retryVersion.value = retryVersion.value + 1L
-        homeSnapshotRepository.refreshHomeSnapshotAsync(force = true)
+        appScope.launch {
+            try {
+                homeSnapshotRepository.retryCalibration()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (exception: Exception) {
+                diagnosticsLogger.warning(TAG, "pk_calibration_retry_failed", exception)
+            }
+        }
     }
 
     private suspend fun render(build: HomeCalibrationBuild): PkCalibrationLive? {

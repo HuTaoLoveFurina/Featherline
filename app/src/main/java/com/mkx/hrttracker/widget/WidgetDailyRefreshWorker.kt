@@ -44,6 +44,10 @@ class WidgetDailyRefreshWorker(
         } else {
             updateAllHrtWidgets(appContext)
         }
+        // A slot can pass without a reminder (reminders off, or Doze delayed
+        // the alarm): store Home's estimate without it. Only a key when the
+        // stored estimate already matches.
+        entryPoint.e2EstimateRepository().warmHome()
         return Result.success()
     }
 }
