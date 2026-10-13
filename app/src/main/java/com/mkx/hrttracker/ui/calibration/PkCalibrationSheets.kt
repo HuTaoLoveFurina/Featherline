@@ -115,7 +115,7 @@ private fun PkCalibrationSheetItem(
         title = stringResource(titleRes),
         supportingText = stringResource(bodyRes),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        titleTextStyle = MaterialTheme.typography.titleSmall,
+        titleTextStyle = MaterialTheme.typography.titleMedium,
         supportingTextStyle = MaterialTheme.typography.bodySmall,
         leadingContent = { PkCalibrationSheetIcon(iconRes) },
     )
@@ -127,7 +127,7 @@ private fun PkCalibrationSheetIcon(@DrawableRes iconRes: Int) {
     Box(
         modifier = Modifier
             .size(36.dp)
-            .clip(MaterialTheme.shapes.medium)
+            .clip(MaterialTheme.shapes.small)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
@@ -239,9 +239,9 @@ private fun PkCalibrationRouteCard(
             ) {
                 PkCalibrationRouteTile(
                     route = row.route,
-                    size = 34.dp,
+                    size = 36.dp,
                     iconSize = 20.dp,
-                    shape = MaterialTheme.shapes.medium,
+                    shape = MaterialTheme.shapes.small,
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     val name = stringResource(row.route.applicationType.labelRes)
@@ -257,12 +257,17 @@ private fun PkCalibrationRouteCard(
                         ?.let {
                             Text(
                                 text = it,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                 }
-                row.confidence?.let { confidence -> PkCalibrationConfidenceBars(confidence) }
+                row.confidence?.let {
+                    confidence ->
+                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        PkCalibrationConfidenceBars(confidence)
+                    }
+                }
             }
             // Low confidence already says "uncertain"; outliers live on the review banner.
             val warnings = row.reasons.filterNot { reason ->

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.takeOrElse
 import com.mkx.hrttracker.R
+import com.mkx.hrttracker.model.medication.MedicationApplicationType
 import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
 import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
 import com.mkx.hrttracker.model.pk.PkCalibrationRoute
@@ -440,8 +441,13 @@ internal fun PkCalibrationRouteTile(
             .background(routeScheme.primaryContainer),
         contentAlignment = Alignment.Center,
     ) {
+        // A route is the medicine, not the "apply" action, so patch drops the plus badge.
+        val iconRes = when (route.applicationType) {
+            MedicationApplicationType.PATCH_ON -> R.drawable.ic_sticker
+            else -> medicationApplicationIconRes(route.applicationType)
+        }
         Icon(
-            painter = painterResource(medicationApplicationIconRes(route.applicationType)),
+            painter = painterResource(iconRes),
             contentDescription = null,
             tint = routeScheme.onPrimaryContainer,
             modifier = Modifier.size(iconSize),
