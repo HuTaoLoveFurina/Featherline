@@ -9,8 +9,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** A held [value] and whether its screen shows the updating indicator. */
-data class Held<T>(val value: T, val isUpdating: Boolean)
+/**
+ * A held [value], whether its screen shows the updating indicator, and the
+ * [latest] value, newer than [value] only through a hold.
+ */
+data class Held<T>(val value: T, val isUpdating: Boolean, val latest: T = value)
 
 /** Long enough for the indicator to slide fully in before it leaves. */
 const val UPDATING_MIN_HOLD_MILLIS = 400L
@@ -22,9 +25,9 @@ const val UPDATING_MIN_HOLD_MILLIS = 400L
  * intermediate values (a cleared snapshot's fallback) never show, and the
  * content changes together with the indicator leaving.
  *
- * Only what [merge] takes from the settled value is held: through a hold the
- * screen shows [merge] of the settled value and the newest one, so the rest
- * of it (a dose list, a lab list) shows a change at once.
+ * Through a hold [Held.latest] carries the newest value, so a screen can hold
+ * only the part that is re-solving (an estimate) and show the rest (a dose
+ * list, a lab list) at once.
  *
  * The consumers collect while their screen is covered, and a save from a
  * pushed screen starts the hold before the pop back. Timed from the start of
@@ -42,7 +45,6 @@ fun <T : Any> Flow<T>.holdWhileUpdating(
     visible: StateFlow<Boolean>,
     minHoldMillis: Long = UPDATING_MIN_HOLD_MILLIS,
     settled: T? = null,
-    merge: (held: T, latest: T) -> T,
     isUpdating: (T) -> Boolean,
 ): Flow<Held<T>> = channelFlow {
     var settled: T? = settled
@@ -55,7 +57,7 @@ fun <T : Any> Flow<T>.holdWhileUpdating(
                     visible.first { it }
                     delay(minHoldMillis)
                 }
-                send(Held(merge(shown, value), isUpdating = true))
+                send(Held(shown, isUpdating = true, latest = value))
             }
         } else {
             if (!visible.value) minHold?.cancel()

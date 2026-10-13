@@ -50,11 +50,7 @@ class CalibrationViewModel @Inject constructor(
         pkCalibrationLiveRepository.liveState,
         pkCalibrationLiveRepository.updating,
     ) { panels, live, updating -> CalibrationData(panels, live, updating) }
-        .holdWhileUpdating(
-            visible = screenVisible,
-            settled = seedData,
-            merge = { held, latest -> latest.copy(live = held.live) },
-        ) { data -> data.updating }
+        .holdWhileUpdating(screenVisible, settled = seedData) { data -> data.updating }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
@@ -87,9 +83,9 @@ class CalibrationViewModel @Inject constructor(
         held: Held<CalibrationData>,
         settingsState: SettingsState,
     ) = CalibrationUiState(
-        panels = held.value.panels.orEmpty(),
+        panels = held.latest.panels.orEmpty(),
         settingsState = settingsState,
-        isLoading = held.value.panels == null || held.value.live == null,
+        isLoading = held.latest.panels == null || held.value.live == null,
         isUpdating = held.isUpdating,
     )
 

@@ -18,7 +18,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, merge = { held, _ -> held }) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -55,7 +55,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, settled = "seed" to false, merge = { held, _ -> held }) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, settled = "seed" to false) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -77,37 +77,30 @@ class HoldWhileUpdatingTest {
     }
 
     @Test
-    fun merge_holdsOnlyItsPart_andTheRestShowsAtOnce() = runTest {
-        val source = MutableSharedFlow<Screen>()
-        val shown = mutableListOf<Pair<Held<Screen>, Long>>()
+    fun latest_carriesTheNewestValueThroughTheHold() = runTest {
+        val source = MutableSharedFlow<Pair<String, Boolean>>()
+        val shown = mutableListOf<Triple<String, String, Long>>()
         val job = launch {
-            source.holdWhileUpdating(
-                MutableStateFlow(true),
-                minHoldMillis = 400L,
-                settled = Screen(e2 = "old", doses = "old", updating = false),
-                merge = { held, latest -> latest.copy(e2 = held.e2) },
-            ) { screen -> screen.updating }
-                .collect { held -> shown += held to testScheduler.currentTime }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 400L, settled = "old" to false) { (_, updating) -> updating }
+                .collect { held -> shown += Triple(held.value.first, held.latest.first, testScheduler.currentTime) }
         }
         runCurrent()
 
-        source.emit(Screen(e2 = "fallback", doses = "new", updating = true)) // the dose shows at once
+        source.emit("fallback" to true) // held on "old"; the unheld part shows "fallback" at once
         runCurrent()
         advanceTimeBy(100L)
-        source.emit(Screen(e2 = "new", doses = "new", updating = false)) // e2 released at 400 ms
+        source.emit("new" to false) // released at 400 ms
         advanceUntilIdle()
 
         assertEquals(
             listOf(
-                Held(Screen(e2 = "old", doses = "new", updating = true), isUpdating = true) to 0L,
-                Held(Screen(e2 = "new", doses = "new", updating = false), isUpdating = false) to 400L,
+                Triple("old", "fallback", 0L),
+                Triple("new", "new", 400L),
             ),
             shown,
         )
         job.cancel()
     }
-
-    private data class Screen(val e2: String, val doses: String, val updating: Boolean)
 
     @Test
     fun hiddenScreen_minHoldStartsWhenShown_andHiddenLandingReleasesAtOnce() = runTest {
@@ -115,7 +108,7 @@ class HoldWhileUpdatingTest {
         val visible = MutableStateFlow(false)
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(visible, minHoldMillis = 400L, settled = "old" to false, merge = { held, _ -> held }) { (_, updating) -> updating }
+            source.holdWhileUpdating(visible, minHoldMillis = 400L, settled = "old" to false) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()

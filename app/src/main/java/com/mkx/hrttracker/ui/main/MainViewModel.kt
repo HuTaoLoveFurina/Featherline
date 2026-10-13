@@ -141,19 +141,24 @@ class MainViewModel @Inject constructor(
                     .map { inputs -> KeyedHomeInputs(key = key, inputs = inputs) }
             }
 
-        val inputsAndUnitFlow = combine(
-            keyedInputsFlow,
+        // Only the E2 hero and chart are held while a data change's rebuild
+        // lands: curve, band and hero change together. They are held as
+        // inputs, so the live time and display unit still render them; the
+        // dose lists and the rest of Home show the change at once.
+        val heldInputsFlow = combine(
+            keyedInputsFlow.holdWhileUpdating(screenVisible) { keyed -> keyed.inputs.isRebuilding },
             settingsRepository.settingsState,
-        ) { keyedInputs, settings -> keyedInputs to settings.homeE2DisplayUnit }
+        ) { held, settings -> held to settings.homeE2DisplayUnit }
         // The Home calibration presentation comes from the snapshot, so it is
         // on the first frame with the curve.
         val homeStateFlow = combine(
-            inputsAndUnitFlow,
+            heldInputsFlow,
             gatedSnapshot,
             timeZoneChangeNoticeController.notice,
             settingsRepository.homeLowStockSectionExpandedFlow,
             settingsRepository.homeLowStockAcknowledgedWarningStatesFlow,
-        ) { (keyedInputs, homeE2DisplayUnit), timeSnapshot, timeZoneNotice, storedLowStockSectionExpanded, acknowledgedWarningStates ->
+        ) { (held, homeE2DisplayUnit), timeSnapshot, timeZoneNotice, storedLowStockSectionExpanded, acknowledgedWarningStates ->
+            val keyedInputs = held.latest
             if (!keyedInputs.key.matches(timeSnapshot)) {
                 return@combine null
             }
@@ -175,8 +180,8 @@ class MainViewModel @Inject constructor(
                 }
             }
             withContext(defaultDispatcher) {
-                buildHomeUiState(
-                    inputs = inputs,
+                fun build(from: HomeInputs) = buildHomeUiState(
+                    inputs = from,
                     now = timeSnapshot.minute,
                     zoneId = timeSnapshot.zone,
                     timeZoneNotice = timeZoneNotice,
@@ -186,26 +191,23 @@ class MainViewModel @Inject constructor(
                         acknowledgedWarningStates = acknowledgedWarningStates,
                     ),
                     homeE2DisplayUnit = homeE2DisplayUnit,
+                    isUpdating = held.isUpdating,
+                )
+                val state = build(inputs)
+                // At the live time a held projection is re-sliced, or
+                // re-simulated from the held doses once its window no longer
+                // covers the chart (a hold across midnight).
+                val e2 = if (held.isUpdating) build(held.value.inputs) else state
+                state.copy(
+                    e2TrendReady = e2.e2TrendReady,
+                    homeE2ChartWindowOption = e2.homeE2ChartWindowOption,
+                    pkCalibration = e2.pkCalibration,
+                    e2Hero = e2.e2Hero,
+                    e2Chart = e2.e2Chart,
                 )
             }
         }
             .filterNotNull()
-            // Only the E2 hero and chart are held while a data change's rebuild
-            // lands: curve, band and hero change together. The dose lists and
-            // the rest of Home show the change at once.
-            .holdWhileUpdating(
-                visible = screenVisible,
-                merge = { held, latest ->
-                    latest.copy(
-                        e2TrendReady = held.e2TrendReady,
-                        homeE2ChartWindowOption = held.homeE2ChartWindowOption,
-                        pkCalibration = held.pkCalibration,
-                        e2Hero = held.e2Hero,
-                        e2Chart = held.e2Chart,
-                    )
-                },
-            ) { state -> state.isUpdating }
-            .map { held -> held.value.copy(isUpdating = held.isUpdating) }
 
         return combine(
             homeStateFlow,
@@ -356,6 +358,7 @@ class MainViewModel @Inject constructor(
         timeZoneNotice: TimeZoneChangeNotice?,
         lowStockSectionExpanded: Boolean,
         homeE2DisplayUnit: BloodUnitKey,
+        isUpdating: Boolean,
     ): MainUiState {
         val chartWindowOption = inputs.settings.homeE2ChartWindowOption
         val homeEntries = (inputs.scheduleEntries + inputs.antiandrogenHistoryEntries)
@@ -429,7 +432,7 @@ class MainViewModel @Inject constructor(
 
         return MainUiState(
             homeDataReady = true,
-            isUpdating = inputs.isRebuilding,
+            isUpdating = isUpdating,
             e2TrendReady = e2TrendReady,
             homeSource = inputs.source,
             now = now,
