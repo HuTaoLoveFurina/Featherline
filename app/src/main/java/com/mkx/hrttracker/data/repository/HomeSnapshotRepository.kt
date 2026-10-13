@@ -3,8 +3,6 @@ package com.mkx.hrttracker.data.repository
 import com.mkx.hrttracker.model.bloodtest.BloodAnalyteKey
 import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
 import com.mkx.hrttracker.model.pk.PkCalibrationEngine
-import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
-import com.mkx.hrttracker.model.pk.PkCalibrationInput
 import com.mkx.hrttracker.model.pk.PkCalibrationLab
 import java.time.Instant
 import java.util.UUID
@@ -30,7 +28,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -66,22 +63,23 @@ class HomeSnapshotRepository @Inject constructor(
     private val snapshotMutationMutex = Mutex()
 
     /**
-     * The fit epoch Try again asks for. Every build writes its fit with the
-     * value it read when it started, so a retry outlives joined and
-     * superseded builds, and its new epoch changes every estimate key built
-     * on the fit. Starts at the stored fit's epoch, read before anything
-     * clears the snapshot; null until then. Guarded by [refreshMutex].
+     * The fit epoch Try again asks for. A build re-solves while the stored
+     * fit's epoch is below the value it read when it started, and writes a
+     * fit it solves with that value (a reused fit keeps its own, never
+     * lower), so a retry outlives joined, superseded and dropped builds, and
+     * its new epoch changes every estimate key built on the fit. Starts at
+     * the stored fit's epoch, read before anything clears the snapshot; null
+     * until then. Guarded by [refreshMutex].
      */
     private var requestedFitEpoch: Int? = null
 
     /**
-     * The calibration solve of the newest snapshot build, published before the
-     * snapshot write so the live calibration surface reuses it instead of
-     * solving again. Null until the first build of this process.
+     * The fit of the last snapshot written, for the next build to reuse. Kept
+     * here because a mutation clears the stored snapshot before its build
+     * runs. Starts at the stored one, read with [requestedFitEpoch].
      */
-    val calibrationBuilds: StateFlow<HomeCalibrationBuild?>
-        get() = calibrationBuildState
-    private val calibrationBuildState = MutableStateFlow<HomeCalibrationBuild?>(null)
+    @Volatile
+    private var storedFit: E2FitRecord? = null
 
     /**
      * True while a refresh is pending or building, from a mutation's clear (or
@@ -91,16 +89,6 @@ class HomeSnapshotRepository @Inject constructor(
     val rebuildInFlight: Flow<Boolean>
         get() = activeRefreshes.map { count -> count > 0 }.distinctUntilChanged()
     private val activeRefreshes = MutableStateFlow(0)
-
-    /**
-     * [rebuildInFlight] for mutations and forced requests only. The
-     * calibration page's updating indicator follows this (Home's follows its
-     * estimate's [E2Pending.USER]), so a launch request, which usually ends at
-     * the skip-check, does not flash it.
-     */
-    val forcedRebuildInFlight: Flow<Boolean>
-        get() = activeForcedRefreshes.map { count -> count > 0 }.distinctUntilChanged()
-    private val activeForcedRefreshes = MutableStateFlow(0)
 
     /**
      * Waits until no rebuild is pending or building, the warm-up that ends
@@ -184,17 +172,17 @@ class HomeSnapshotRepository @Inject constructor(
                 // must already see its rebuild coming when that happens (the
                 // estimator would request another).
                 activeRefreshes.update { count -> count + 1 }
-                activeForcedRefreshes.update { count -> count + 1 }
                 generation = try {
                     homeSnapshotGenerationStore.incrementGeneration()
                 } catch (throwable: Throwable) {
                     // No block ran and no refresh will be launched to drop
-                    // these, so Home would show updating forever.
+                    // it, so its readers would wait forever.
                     activeRefreshes.update { count -> count - 1 }
-                    activeForcedRefreshes.update { count -> count - 1 }
+                    // The only trace of a write, or a Try again, that never ran.
+                    diagnosticsLogger.warning(TAG, "home_data_mutation_generation_failed", throwable)
                     throw throwable
                 }
-                // Before the clear below drops the stored fit it starts from.
+                // Before the clear below drops the stored fit they start from.
                 requestedFitEpochLocked()
                 diagnosticsLogger.info(
                     TAG,
@@ -221,33 +209,28 @@ class HomeSnapshotRepository @Inject constructor(
         return checkNotNull(mutationResult).getOrThrow()
     }
 
-    /** Home's visible chart window for the current option: the range the calibration badge describes. */
-    suspend fun visibleChartRange(now: LocalDateTime, zoneId: ZoneId): LongRange {
-        val option = settingsRepository.homeE2ChartWindowOptionFlow.first()
-        return HomePkChartWindow.forNow(now = now, zoneId = zoneId, option = option).range
-    }
-
     /**
      * Calibration's Try again: a gated change like any other, so screens hold
-     * on it as a user change, that also raises [requestedFitEpoch]. Every
-     * build from here on writes its fit with the new epoch, so every estimate
+     * on it as a user change, that also raises [requestedFitEpoch]. Builds
+     * re-solve until one writes its fit with the new epoch, so every estimate
      * built on the fit is derived again, even from unchanged inputs.
      */
     suspend fun retryCalibration() {
         runHomeDataMutation { requestedFitEpoch = requestedFitEpochLocked() + 1 }
     }
 
-    /** Guarded by [refreshMutex]. */
+    /** Guarded by [refreshMutex]. Reads the stored fit once, into [storedFit] too. */
     private suspend fun requestedFitEpochLocked(): Int = requestedFitEpoch ?: run {
         val stored = try {
-            homeSnapshotStore.readSnapshot()?.fit?.epoch
+            homeSnapshotStore.readSnapshot()?.fit
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (exception: Exception) {
             diagnosticsLogger.warning(TAG, "home_snapshot_fit_epoch_read_failed", exception)
             null
         }
-        (stored ?: 0).also { epoch -> requestedFitEpoch = epoch }
+        storedFit = stored
+        (stored?.epoch ?: 0).also { epoch -> requestedFitEpoch = epoch }
     }
 
     /** The snapshot's own validity, apart from the generation: schema, engine, zone and date window. */
@@ -345,11 +328,11 @@ class HomeSnapshotRepository @Inject constructor(
 
     /**
      * [force] bypasses the skip-check so the snapshot is rebuilt even when the
-     * stored one looks usable. [silent] keeps a forced rebuild out of
-     * [forcedRebuildInFlight] and off the builds' forced flag: system events
-     * (boot, clock / zone change, package update, the midnight alarm) rebuild
-     * in the background and must not show the updating indicator the way a
-     * mutation does.
+     * stored one looks usable. System events (boot, clock / zone change,
+     * package update, the midnight alarm) pass [silent], which no longer
+     * changes anything: the screens' indicators follow their estimates'
+     * [E2Pending.USER]. It goes with [force] when the rebuild worker replaces
+     * these requests.
      */
     fun refreshHomeSnapshotAsync(
         now: LocalDateTime = LocalDateTime.now(),
@@ -361,21 +344,15 @@ class HomeSnapshotRepository @Inject constructor(
             TAG,
             "home_snapshot_refresh_async_enqueued force=$force silent=$silent now=$now"
         )
-        val indicated = force && !silent
         activeRefreshes.update { count -> count + 1 }
-        if (indicated) activeForcedRefreshes.update { count -> count + 1 }
-        launchCountedRefresh(now = now, force = force, zoneId = zoneId, indicated = indicated)
+        launchCountedRefresh(now = now, force = force, zoneId = zoneId)
     }
 
-    /**
-     * Runs a refresh in the app scope; the caller has already counted it in
-     * [activeRefreshes] (and, when [indicated], in [activeForcedRefreshes]).
-     */
+    /** Runs a refresh in the app scope; the caller has already counted it in [activeRefreshes]. */
     private fun launchCountedRefresh(
         now: LocalDateTime,
         force: Boolean,
         zoneId: ZoneId,
-        indicated: Boolean = force,
     ) {
         // Reserve the request's place in line synchronously: the launched
         // coroutine may reach the refresh mutex after a later request's.
@@ -387,7 +364,6 @@ class HomeSnapshotRepository @Inject constructor(
                     force = force,
                     zoneId = zoneId,
                     sequence = sequence,
-                    indicated = indicated,
                 )
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) {
@@ -400,7 +376,6 @@ class HomeSnapshotRepository @Inject constructor(
                 )
             } finally {
                 activeRefreshes.update { count -> count - 1 }
-                if (indicated) activeForcedRefreshes.update { count -> count - 1 }
             }
         }
     }
@@ -412,12 +387,10 @@ class HomeSnapshotRepository @Inject constructor(
      */
     suspend fun invalidateAndRebuildHomeSnapshot() {
         activeRefreshes.update { count -> count + 1 }
-        activeForcedRefreshes.update { count -> count + 1 }
         try {
             invalidateHomeSnapshot()
         } catch (throwable: Throwable) {
             activeRefreshes.update { count -> count - 1 }
-            activeForcedRefreshes.update { count -> count - 1 }
             throw throwable
         }
         launchCountedRefresh(now = LocalDateTime.now(), force = true, zoneId = ZoneId.systemDefault())
@@ -425,7 +398,7 @@ class HomeSnapshotRepository @Inject constructor(
 
     suspend fun invalidateHomeSnapshot() {
         diagnosticsLogger.info(TAG, "home_snapshot_invalidate_start")
-        // Before the clear below drops the stored fit it starts from.
+        // Before the clear below drops the stored fit they start from.
         refreshMutex.withLock { requestedFitEpochLocked() }
         val generation = homeSnapshotGenerationStore.incrementGeneration()
         diagnosticsLogger.info(
@@ -451,7 +424,6 @@ class HomeSnapshotRepository @Inject constructor(
             force = force,
             zoneId = zoneId,
             sequence = refreshRequestSequence.incrementAndGet(),
-            indicated = force && !silent,
         )
     }
 
@@ -460,8 +432,6 @@ class HomeSnapshotRepository @Inject constructor(
         force: Boolean,
         zoneId: ZoneId,
         sequence: Long,
-        /** Whether this request's build shows the updating indicator. */
-        indicated: Boolean,
     ) {
         diagnosticsLogger.info(TAG, "home_snapshot_refresh_start force=$force now=$now")
         // Suspends on first call until the observer has captured the raw
@@ -507,9 +477,6 @@ class HomeSnapshotRepository @Inject constructor(
                     "home_snapshot_refresh_joined_in_flight generation=$generation " +
                             "force=$force now=$now superseded=$superseded"
                 )
-                // A forced joiner's hold waits on this build's write, so the
-                // write must count as forced for its record to be awaited.
-                if (indicated) inFlight.forced.value = true
                 return@withLock inFlight.build
             }
             if (superseded) {
@@ -528,9 +495,6 @@ class HomeSnapshotRepository @Inject constructor(
             ) ?: return@withLock null
             latestStartedRefreshSequence = sequence
             val fitEpoch = requestedFitEpochLocked()
-            // Observable: a joiner's promotion must reach the calibration
-            // page's readiness even if it misses the counter transition.
-            val forced = MutableStateFlow(indicated)
             // The build deliberately outlives its requester: a receiver's
             // timeout cancels only its await, and later requests join the
             // still-running build instead of starting another.
@@ -542,7 +506,6 @@ class HomeSnapshotRepository @Inject constructor(
                         refreshGeneration = refreshGeneration,
                         refreshSequence = sequence,
                         fitEpoch = fitEpoch,
-                        forced = forced,
                         now = now,
                         zoneId = zoneId,
                         option = option,
@@ -564,7 +527,6 @@ class HomeSnapshotRepository @Inject constructor(
                     zoneId = zoneId,
                     option = option,
                     build = started,
-                    forced = forced,
                 )
             }
         } ?: return
@@ -587,7 +549,6 @@ class HomeSnapshotRepository @Inject constructor(
         val zoneId: ZoneId,
         val option: HomeE2ChartWindowOption,
         val build: Deferred<Unit>,
-        val forced: MutableStateFlow<Boolean>,
     )
 
     private suspend fun refreshGenerationAfterSkipCheckLocked(
@@ -624,10 +585,8 @@ class HomeSnapshotRepository @Inject constructor(
         refreshGeneration: Long,
         /** Request-order sequence; a build is dropped once a newer request has started one. */
         refreshSequence: Long,
-        /** [requestedFitEpoch] when the build started: the fit is written with it. */
+        /** [requestedFitEpoch] when the build started: a fit it solves is written with it. */
         fitEpoch: Int,
-        /** Shared with joiners: a forced request joining this build raises it. */
-        forced: StateFlow<Boolean>,
         now: LocalDateTime,
         zoneId: ZoneId,
         option: HomeE2ChartWindowOption,
@@ -676,7 +635,8 @@ class HomeSnapshotRepository @Inject constructor(
             val homeAnchor = database.journalDao().getFirstPinnedTrackedDate()?.toModel()
             // Calibration inputs: every E2 lab, the estradiol doses that can
             // still shape a lab (see calibrationDoseWindowStartEpochMillis),
-            // and the user's review metadata.
+            // and the user's review metadata. None of the reads follows the
+            // clock, so neither does the fit's identity.
             val calibrationLabs = database.bloodTestDao().getPanels().flatMap { panel ->
                 panel.results
                     .filter { result ->
@@ -690,12 +650,20 @@ class HomeSnapshotRepository @Inject constructor(
                         )
                     }
             }
-            val calibrationEntryEntities = homeDao.getEstradiolPkEntries(
-                startEpochMillis = calibrationDoseWindowStartEpochMillis(
-                    labs = calibrationLabs,
-                    fallbackStartEpochMillis = cacheWindow.inputStartEpochMillis,
-                ),
-                endEpochMillis = Long.MAX_VALUE,
+            val calibrationEntryEntities = calibrationDoseWindowStartEpochMillis(calibrationLabs)
+                ?.let { startEpochMillis ->
+                    homeDao.getEstradiolPkEntries(
+                        startEpochMillis = startEpochMillis,
+                        endEpochMillis = Long.MAX_VALUE,
+                    )
+                }
+                .orEmpty()
+            // Whenever it is logged for: buildPkCalibrationInput keeps it when
+            // every dose predates the lab window. Without labs it is the only
+            // dose read, since the solve then only tells no dose history from
+            // no labs; a latest dose the model can't place reads as none.
+            val latestCalibrationEntryEntity = homeDao.getLatestEstradiolEntryOnOrBefore(
+                onOrBeforeEpochMillis = Long.MAX_VALUE,
             )
             val calibrationMetadata = database.pkCalibrationDao().getAllMetadata()
                 .map { entity -> entity.toModel() }
@@ -706,7 +674,7 @@ class HomeSnapshotRepository @Inject constructor(
             val entryMedicinesByUuid = database.resolveMedicinesForEntries(
                 scheduleEntryEntities + antiandrogenHistoryEntities + pkEntries +
                         listOfNotNull(latestEstradiolEntryEntity) + stockFulfillmentEntities +
-                        calibrationEntryEntities
+                        calibrationEntryEntities + listOfNotNull(latestCalibrationEntryEntity)
             )
             val activeGroups = activeGroupEntities.map { group ->
                 group.toMedicationGroupModel(groupMedicinesByUuid)
@@ -732,9 +700,8 @@ class HomeSnapshotRepository @Inject constructor(
             }
             HomeSnapshotBuildInputs(
                 calibrationLabs = calibrationLabs,
-                // Plus the latest dose: buildPkCalibrationInput keeps it when
-                // every dose predates the lab window.
-                calibrationEntries = (calibrationEntryEntities + listOfNotNull(latestEstradiolEntryEntity))
+                // Plus the latest dose.
+                calibrationEntries = (calibrationEntryEntities + listOfNotNull(latestCalibrationEntryEntity))
                     .distinctBy { entry -> entry.uuid }
                     .map { entry -> entry.toMedicationLogEntryModel(entryMedicinesByUuid) },
                 calibrationMetadata = calibrationMetadata,
@@ -765,8 +732,8 @@ class HomeSnapshotRepository @Inject constructor(
         )
 
         // Lab calibration is part of the snapshot so the calibrated curve is
-        // what Home and the widget show first, not a population curve that a
-        // later live evaluation swaps out.
+        // what Home and the widget show first, not a population curve swapped
+        // out later.
         val phaseStartNanos = System.nanoTime()
         fun phaseMillis(): Long = (System.nanoTime() - phaseStartNanos) / 1_000_000L
         val calibrationInput = buildPkCalibrationInput(
@@ -775,17 +742,29 @@ class HomeSnapshotRepository @Inject constructor(
             weightKg = inputs.profile.weightKg,
             metadata = inputs.calibrationMetadata,
         )
+        val fitId = E2Derivation.fitId(calibrationInput)
         diagnosticsLogger.info(
             TAG,
             "home_snapshot_phase calibration_input_built ms=${phaseMillis()} " +
                     "labs=${calibrationInput.labs.size} doseEvents=${calibrationInput.doseEvents.size}"
         )
-        // A throwing solve must not drop the snapshot write: Home would fall
-        // back to population and the live surface would keep the pre-mutation
-        // fit. Treat it as no calibration and still write the snapshot.
-        val calibration = calibrationInput.let { input ->
-            runCatching {
-                withContext(defaultDispatcher) { PkCalibrationEngine.evaluate(input) }
+        // The solve reads only what fitId digests, so the stored fit stands in
+        // for it: a stock edit, an antiandrogen dose, midnight or a 7/30
+        // switch never re-solves. Not a failed one, which the next build tries
+        // again, nor one older than a pending Try again. The labs and review
+        // metadata written beside it then flag what it was solved from: fitId
+        // digests every value the calibration page's flags read.
+        val reused = storedFit?.takeIf { stored ->
+            stored.fitId == fitId && stored.outcome != FitOutcome.Failed && stored.epoch >= fitEpoch
+        }
+        val fit = reused ?: E2FitRecord(
+            fitId = fitId,
+            epoch = fitEpoch,
+            // A throwing solve must not drop the snapshot write: Home would
+            // fall back to population. Treat it as no calibration and still
+            // write the snapshot.
+            outcome = runCatching {
+                withContext(defaultDispatcher) { PkCalibrationEngine.evaluate(calibrationInput) }
             }.onFailure { throwable ->
                 if (throwable is CancellationException) throw throwable
                 diagnosticsLogger.warning(
@@ -794,37 +773,21 @@ class HomeSnapshotRepository @Inject constructor(
                     throwable,
                 )
             }.getOrNull()
-        }
-        // The badge (Home and the calibration page alike) describes the
-        // visible chart, not the cached forecast buffer past it.
-        val visibleChartRange = HomePkChartWindow.forNow(now = now, zoneId = zoneId, option = option).range
-        publishCalibrationBuild(
-            HomeCalibrationBuild(
-                generation = refreshGeneration,
-                generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
-                input = calibrationInput,
-                evaluation = calibration,
-                statusRange = visibleChartRange,
-                forcedChanges = forced,
-            )
+                ?.let { evaluation -> FitOutcome.Solved(evaluation.result, calibrationInput.originEpochMillis) }
+                ?: FitOutcome.Failed,
         )
+        val result = (fit.outcome as? FitOutcome.Solved)?.result
         diagnosticsLogger.info(
             TAG,
-            "home_snapshot_phase calibration_solved ms=${phaseMillis()} " +
-                    "state=${calibration?.result?.globalState} promoted=${calibration?.result?.promotedRoutes}"
+            "home_snapshot_phase calibration_${if (reused != null) "reused" else "solved"} ms=${phaseMillis()} " +
+                    "epoch=${fit.epoch} state=${result?.globalState} promoted=${result?.promotedRoutes}"
         )
         val e2Inputs = E2Inputs(
             estradiolEntries = inputs.pkEntries,
             plannedSources = inputs.activeGroups,
             weightKg = inputs.profile.weightKg,
             option = option,
-            fit = E2FitRecord(
-                fitId = E2Derivation.fitId(calibrationInput),
-                epoch = fitEpoch,
-                outcome = calibration
-                    ?.let { evaluation -> FitOutcome.Solved(evaluation.result, calibrationInput.originEpochMillis) }
-                    ?: FitOutcome.Failed,
-            ),
+            fit = fit,
         )
         // Home's estimate is derived from the record by E2EstimateRepository;
         // the widget still reads its projection from here.
@@ -882,6 +845,7 @@ class HomeSnapshotRepository @Inject constructor(
                                 "pkEntries=${inputs.pkEntries.size}"
                     )
                     homeSnapshotStore.writeSnapshot(snapshotRecord)
+                    storedFit = snapshotRecord.fit
                     StartupTiming.mark("home_snapshot_rebuilt")
                     diagnosticsLogger.info(
                         TAG,
@@ -904,16 +868,6 @@ class HomeSnapshotRepository @Inject constructor(
         if (written) e2EstimateRepository.get().warmHome()
     }
 
-    private fun publishCalibrationBuild(build: HomeCalibrationBuild) {
-        calibrationBuildState.update { current ->
-            if (current == null ||
-                current.generation < build.generation ||
-                (current.generation == build.generation &&
-                        current.generatedAtEpochMillis <= build.generatedAtEpochMillis)
-            ) build else current
-        }
-    }
-
     private data class HomeSnapshotBuildInputs(
         val calibrationLabs: List<PkCalibrationLab>,
         val calibrationEntries: List<MedicationLogEntry>,
@@ -930,12 +884,12 @@ class HomeSnapshotRepository @Inject constructor(
         val homeAnchor: TrackedDate? = null,
     )
 
-    // Full projection-cache window: past-days back from today's midnight, plus
-    // option.futureDays + MainChartProjectionFutureBufferDays of forward span.
-    // Used by the refresh path to size simulator bounds and Room input queries.
+    // The logged E2 the snapshot carries: from every estimate's PK lookback,
+    // the calibration page's included, whatever the option, through the
+    // option's projection end (option.futureDays +
+    // MainChartProjectionFutureBufferDays past today's midnight).
     private data class HomePkProjectionWindow(
         val generatedAtEpochMillis: Long,
-        val windowStartEpochMillis: Long,
         val windowEndEpochMillis: Long,
         val inputStartEpochMillis: Long,
     ) {
@@ -946,12 +900,6 @@ class HomeSnapshotRepository @Inject constructor(
                 option: HomeE2ChartWindowOption,
             ): HomePkProjectionWindow {
                 val generatedAt = now.atZone(zoneId).toInstant()
-                val windowStart = now
-                    .toLocalDate()
-                    .atStartOfDay()
-                    .minusDays(option.pastDays)
-                    .atZone(zoneId)
-                    .toInstant()
                 val windowEnd = now
                     .toLocalDate()
                     .plusDays(option.projectionFutureDays())
@@ -960,12 +908,8 @@ class HomeSnapshotRepository @Inject constructor(
                     .toInstant()
                 return HomePkProjectionWindow(
                     generatedAtEpochMillis = generatedAt.toEpochMilli(),
-                    windowStartEpochMillis = windowStart.toEpochMilli(),
                     windowEndEpochMillis = windowEnd.toEpochMilli(),
-                    // The PK lookback E2Derivation reads before the window.
-                    inputStartEpochMillis = windowStart
-                        .minus(PK_CALIBRATION_DOSE_LOOKBACK)
-                        .toEpochMilli(),
+                    inputStartEpochMillis = E2Derivation.loggedEntriesStart(now, zoneId).toEpochMilli(),
                 )
             }
         }
@@ -1091,24 +1035,10 @@ private fun HomeSnapshotRecord.diagnosticSummary(): String {
             "fitEpoch=${fit?.epoch}"
 }
 
-/** One snapshot build's calibration solve. [evaluation] is null when the solve threw. */
-class HomeCalibrationBuild(
-    val generation: Long,
-    val generatedAtEpochMillis: Long,
-    val input: PkCalibrationInput,
-    val evaluation: PkCalibrationEvaluation?,
-    /** Home's visible chart window at build time: the range the badge describes. */
-    val statusRange: LongRange,
-    /** Shared with the build's write: a forced request joining after publication raises it. */
-    val forcedChanges: StateFlow<Boolean> = MutableStateFlow(false),
-) {
-    /** From a mutation or forced request: the builds whose landing shows the updating indicator. */
-    val forced: Boolean
-        get() = forcedChanges.value
-}
-
-// Bumped to 9 with the Oct 2026 estradiol PK refit so every install rebuilds its cached
-// projections and calibration on the first open after the update.
+// Bumped to 9 with the Oct 2026 estradiol PK refit so every install rebuilt its cached
+// projections and calibration on the first open after the update. A PK refit now bumps
+// PK_ENGINE_VERSION instead: a schema bump alone rebuilds the snapshot but reuses the
+// stored fit, whose fitId only the engine version moves.
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 9
 
 private const val TAG = "HomeSnapshotRepository"

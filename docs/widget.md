@@ -372,8 +372,9 @@ graph TD
   `UPCOMING`/`DUE_SOON` status should have transitioned by `now`. If
   any of those are true it calls
   `homeSnapshotRepository.refreshHomeSnapshotIfNeeded(force = true, silent = true)`
-  — forced past the usable-snapshot check but without the Home updating
-  indicator — which routes back into the home-snapshot observer above. Otherwise it
+  — forced past the usable-snapshot check; it carries no newer generation,
+  so Home shows no updating indicator — which routes back into the
+  home-snapshot observer above. Otherwise it
   just calls `updateAllHrtWidgets` to re-render against the existing
   snapshot.
 - **Date / time / timezone events.**

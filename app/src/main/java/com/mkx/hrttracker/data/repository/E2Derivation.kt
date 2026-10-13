@@ -293,6 +293,14 @@ object E2Derivation {
     }
 
     /**
+     * The earliest logged dose any derivation at [now] reads, whatever the
+     * option: the PK lookback before the calibration page's domain, the
+     * widest window. Entries read from here serve every option and the page.
+     */
+    fun loggedEntriesStart(now: LocalDateTime, zoneId: ZoneId): Instant =
+        calibrationDomainStart(now, zoneId).minus(PK_CALIBRATION_DOSE_LOOKBACK)
+
+    /**
      * The slots after [now], through the option's projection horizon, that
      * Home's curve assumes are taken. Every logged entry counts toward
      * filling one; the planned digest covers the result.

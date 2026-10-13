@@ -10,9 +10,12 @@ import com.mkx.hrttracker.model.medication.testMedicationGroupMedication
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
 import com.mkx.hrttracker.model.personalization.UserProfile
+import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
+import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationLab
+import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderer
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import io.mockk.coEvery
@@ -130,12 +133,17 @@ class E2EstimateRepositoryTest {
     private val clock = MutableClock(beforeSlot.atZone(zoneId).toInstant())
     private val minutes = MutableStateFlow(beforeSlot)
     private var derivations = 0
+    private var calibrationRenders = 0
 
     @Before
     fun setUp() {
         mockkObject(E2Derivation)
         every { E2Derivation.deriveHomeEstimate(any(), any(), any(), any()) } answers {
             derivations++
+            callOriginal()
+        }
+        every { E2Derivation.deriveCalibrationRender(any(), any(), any()) } answers {
+            calibrationRenders++
             callOriginal()
         }
     }
@@ -613,6 +621,161 @@ class E2EstimateRepositoryTest {
         assertSame(newer, estimates.latestHome.value)
     }
 
+    @Test
+    fun calibration_coldStart_hasNoValueUntilDerived_andARestartWithAMatchHasItAtOnce() = runTest {
+        // Never stored, so a process's first observation derives it; later
+        // ones (the page again, the editor, Home's sheet) share it.
+        records.value = record(fit = solvedFit(epoch = 0))
+        val estimates = estimates()
+
+        val first = observeCalibration(estimates)
+        assertNull(first.first().value)
+        runCurrent()
+        val shown = checkNotNull(first.last().value)
+        assertNull(first.last().pending)
+        assertNotNull(shown.result)
+        assertNotNull(shown.render)
+        stopAll()
+
+        val again = observeCalibration(estimates)
+        assertSame(shown, again.first().value)
+        assertEquals(1, calibrationRenders)
+        assertEquals(0, writes)
+    }
+
+    @Test
+    fun calibration_aRestart_afterTheKeyMoved_hasNoValue_untilItIsDerived() = runTest {
+        records.value = record(fit = solvedFit(epoch = 0))
+        val estimates = estimates()
+        val first = observeCalibration(estimates)
+        runCurrent()
+        val yesterday = checkNotNull(first.last().value)
+        stopAll()
+
+        // Away past midnight: the page's domain moved with the date.
+        setNow(today.plusDays(1).atTime(9, 0))
+        val returned = observeCalibration(estimates)
+        assertNull(returned.first().value)
+        runCurrent()
+        assertNotEquals(yesterday, checkNotNull(returned.last().value))
+        assertEquals(2, calibrationRenders)
+    }
+
+    @Test
+    fun calibration_pending_isUser_forAReview_andSystem_forMidnight() = runTest {
+        records.value = record(fit = solvedFit(epoch = 0))
+        val estimates = estimates()
+        val states = observeCalibration(estimates)
+        runCurrent()
+        val initial = checkNotNull(states.last().value)
+
+        // Accepting a lab: a gated change whose re-solved fit moves the key.
+        val review = listOf(E2CalibrationMetadata(fitLabs.first().resultId, E2CalibrationDisposition.REVIEWED, Instant.EPOCH))
+        generation.value = 1L
+        records.value = record(generation = 1L, fit = solvedFit(epoch = 0, metadata = review), labMetadata = review)
+        runCurrent()
+        val reviewed = checkNotNull(states.last().value)
+        val userTransition = states.dropWhile { state -> state.value !== initial || state.pending == null }
+        assertEquals(E2State(initial, E2Pending.USER), userTransition.first())
+        assertEquals(setOf(fitLabs.first().resultId), reviewed.acceptedLabIds)
+
+        // Midnight while the page is open: the same generation.
+        setNow(today.plusDays(1).atTime(0, 1))
+        runCurrent()
+        val swapped = states.dropWhile { state -> state.value !== reviewed }
+        assertEquals(E2State(reviewed, E2Pending.SYSTEM), swapped[1])
+        assertNull(swapped.last().pending)
+        assertTrue(swapped.last().value !== reviewed)
+    }
+
+    @Test
+    fun calibration_aChangeTheEstimateDoesntRead_hasNothingPending() = runTest {
+        records.value = record(fit = solvedFit(epoch = 0))
+        val estimates = estimates()
+        val states = observeCalibration(estimates)
+        runCurrent()
+        val shown = checkNotNull(states.last().value)
+        val before = states.size
+
+        // A stock recount, its stored fit reused; then the morning slot
+        // passing, which moves Home's key but not the page's.
+        generation.value = 1L
+        records.value = record(generation = 1L, fit = solvedFit(epoch = 0)).copy(stockMedicines = listOf(estradiol))
+        runCurrent()
+        setNow(afterSlot)
+        runCurrent()
+
+        assertEquals(before, states.size)
+        assertSame(shown, states.last().value)
+        assertEquals(1, calibrationRenders)
+    }
+
+    @Test
+    fun calibration_aRenderThatThrows_isTheNumericFailure_memoized_butNeverStored() = runTest {
+        every { E2Derivation.deriveCalibrationRender(any(), any(), any()) } answers {
+            calibrationRenders++
+            throw IllegalStateException("render")
+        }
+        records.value = record(fit = solvedFit(epoch = 0))
+        val estimates = estimates()
+        val first = observeCalibration(estimates)
+        runCurrent()
+        val failed = checkNotNull(first.last().value)
+        assertNull(failed.result)
+        assertNull(failed.render)
+        assertNull(first.last().pending)
+
+        // A restart with the same key takes it from the memo: the page, the
+        // editor and Home's sheet don't each render it again.
+        stopAll()
+        val again = observeCalibration(estimates)
+        runCurrent()
+
+        assertSame(failed, again.first().value)
+        assertEquals(1, calibrationRenders)
+        assertEquals(0, writes)
+    }
+
+    @Test
+    fun calibration_coldStart_flagsComeFromTheStoredLabsAndMetadata_andMatchTheFit() = runTest {
+        // What the build stored beside the fit: an accepted, an excluded and
+        // a non-positive result. The estimator has no database at all (the
+        // snapshot repository's is a bare mock), so no flag waits for Room.
+        val nonPositive = PkCalibrationLab(
+            resultId = UUID(0L, 9L),
+            collectedAtEpochMillis = today.minusDays(4).atTime(9, 0).atZone(zoneId).toInstant().toEpochMilli(),
+            valuePgml = 0.0,
+        )
+        val labs = fitLabs + nonPositive
+        val metadata = listOf(
+            E2CalibrationMetadata(labs[0].resultId, E2CalibrationDisposition.REVIEWED, Instant.EPOCH),
+            E2CalibrationMetadata(labs[1].resultId, E2CalibrationDisposition.EXCLUDED, Instant.EPOCH),
+        )
+        val input = buildPkCalibrationInput(labs = labs, entries = logged, weightKg = 62.0, metadata = metadata)
+        val fit = E2FitRecord(
+            fitId = E2Derivation.fitId(input),
+            epoch = 0,
+            outcome = FitOutcome.Solved(PkCalibrationEngine.evaluate(input).result, input.originEpochMillis),
+        )
+        records.value = record(fit = fit, labs = labs, labMetadata = metadata)
+        val estimates = estimates()
+
+        val states = observeCalibration(estimates)
+        runCurrent()
+
+        val shown = checkNotNull(states.last().value)
+        assertEquals(setOf(labs[0].resultId), shown.acceptedLabIds)
+        assertEquals(setOf(labs[1].resultId), shown.excludedLabIds)
+        assertEquals(setOf(nonPositive.resultId), shown.nonPositiveLabIds)
+        // The same run's fit: solved from these dispositions, it set the
+        // non-positive result aside, and the excluded one never reached it.
+        assertEquals(input.acceptedLabIds, shown.acceptedLabIds)
+        assertEquals(input.excludedLabIds, shown.excludedLabIds)
+        val result = checkNotNull(shown.result)
+        assertEquals(PkCalibrationLabIgnoreReason.NON_POSITIVE_VALUE, result.ignoredLabs[nonPositive.resultId])
+        assertTrue(labs[1].resultId !in result.ignoredLabs)
+    }
+
     private val observers = mutableListOf<Job>()
 
     private fun TestScope.estimates(): E2EstimateRepository {
@@ -648,6 +811,14 @@ class E2EstimateRepositoryTest {
         return states
     }
 
+    private fun TestScope.observeCalibration(estimates: E2EstimateRepository): List<E2State<CalibrationEstimate>> {
+        val states = mutableListOf<E2State<CalibrationEstimate>>()
+        observers += backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            estimates.observeCalibration(minutes).collect { state -> states += state }
+        }
+        return states
+    }
+
     private fun stopAll() {
         observers.forEach(Job::cancel)
         observers.clear()
@@ -663,6 +834,8 @@ class E2EstimateRepositoryTest {
         weightKg: Double = 62.0,
         logged: List<MedicationLogEntry> = this.logged,
         fit: E2FitRecord? = null,
+        labs: List<PkCalibrationLab> = emptyList(),
+        labMetadata: List<E2CalibrationMetadata> = emptyList(),
     ) = HomeSnapshotRecord(
         schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
         generation = generation,
@@ -676,6 +849,8 @@ class E2EstimateRepositoryTest {
         pkEntries = logged,
         option = HomeE2ChartWindowOption.SEVEN_DAYS,
         fit = fit,
+        labs = labs,
+        labMetadata = labMetadata,
     )
 
     private fun keyAt(record: HomeSnapshotRecord, now: LocalDateTime): HomeEstimateKey =
@@ -694,15 +869,16 @@ class E2EstimateRepositoryTest {
     private val storedEstimates = mutableMapOf<HomeEstimateKey, HomeE2EstimateRecord>()
 
     // An hour after a morning dose, on three days: oral is adjusted, with a band.
-    private fun solvedFit(epoch: Int): E2FitRecord {
-        val labs = listOf(10L, 6L, 2L).mapIndexed { index, daysAgo ->
-            PkCalibrationLab(
-                resultId = UUID(0L, index + 1L),
-                collectedAtEpochMillis = today.minusDays(daysAgo).atTime(9, 0).atZone(zoneId).toInstant().toEpochMilli(),
-                valuePgml = 140.0,
-            )
-        }
-        val input = buildPkCalibrationInput(labs = labs, entries = logged, weightKg = 62.0, metadata = emptyList())
+    private val fitLabs = listOf(10L, 6L, 2L).mapIndexed { index, daysAgo ->
+        PkCalibrationLab(
+            resultId = UUID(0L, index + 1L),
+            collectedAtEpochMillis = today.minusDays(daysAgo).atTime(9, 0).atZone(zoneId).toInstant().toEpochMilli(),
+            valuePgml = 140.0,
+        )
+    }
+
+    private fun solvedFit(epoch: Int, metadata: List<E2CalibrationMetadata> = emptyList()): E2FitRecord {
+        val input = buildPkCalibrationInput(labs = fitLabs, entries = logged, weightKg = 62.0, metadata = metadata)
         return E2FitRecord(
             fitId = E2Derivation.fitId(input),
             epoch = epoch,

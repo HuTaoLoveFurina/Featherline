@@ -1,8 +1,5 @@
 package com.mkx.hrttracker.data.repository
 
-import com.mkx.hrttracker.model.bloodtest.BloodAnalyteKey
-import com.mkx.hrttracker.model.bloodtest.BloodTestPanel
-import com.mkx.hrttracker.model.bloodtest.BloodTestResultAnalyte
 import com.mkx.hrttracker.model.medication.MedicationCategory
 import com.mkx.hrttracker.model.medication.MedicationLogEntry
 import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
@@ -20,32 +17,18 @@ import java.time.Instant
  */
 val PK_CALIBRATION_DOSE_LOOKBACK: Duration = Duration.ofDays(180L)
 
-/** Start of the dose window the fit needs; [fallbackStartEpochMillis] when there are no labs. */
-fun calibrationDoseWindowStartEpochMillis(
-    labs: List<PkCalibrationLab>,
-    fallbackStartEpochMillis: Long,
-): Long = labs.minOfOrNull { it.collectedAtEpochMillis }
-    ?.minus(PK_CALIBRATION_DOSE_LOOKBACK.toMillis())
-    ?: fallbackStartEpochMillis
-
-/** E2 built-in results as calibration labs. */
-fun List<BloodTestPanel>.toPkCalibrationLabs(): List<PkCalibrationLab> = flatMap { panel ->
-    panel.results
-        .filter { (it.analyte as? BloodTestResultAnalyte.Builtin)?.key == BloodAnalyteKey.E2 }
-        .map { result ->
-            PkCalibrationLab(
-                resultId = result.uuid,
-                collectedAtEpochMillis = panel.collectedAt.toEpochMilli(),
-                valuePgml = result.canonicalValue,
-            )
-        }
-}
+/**
+ * Start of the dose window the fit needs; null without labs, where no window
+ * matters: the solve then only tells no dose history from no labs.
+ */
+fun calibrationDoseWindowStartEpochMillis(labs: List<PkCalibrationLab>): Long? =
+    labs.minOfOrNull { it.collectedAtEpochMillis }?.minus(PK_CALIBRATION_DOSE_LOOKBACK.toMillis())
 
 /**
- * The one calibration input recipe, shared by the Home snapshot refresh and
- * the live calibration surface so both always agree. A dose entry that
- * cannot become a PK event is skipped, the same way the Home projection
- * skips it, instead of turning calibration off.
+ * The one calibration input recipe: the Home snapshot build solves from it,
+ * and its fitId tells when the stored fit can stand in for the solve. A dose
+ * entry that cannot become a PK event is skipped, the same way the Home
+ * projection skips it, instead of turning calibration off.
  */
 fun buildPkCalibrationInput(
     labs: List<PkCalibrationLab>,
@@ -53,11 +36,11 @@ fun buildPkCalibrationInput(
     weightKg: Double?,
     metadata: List<E2CalibrationMetadata>,
 ): PkCalibrationInput {
-    val windowStart = calibrationDoseWindowStartEpochMillis(labs, Long.MIN_VALUE)
+    val windowStart = calibrationDoseWindowStartEpochMillis(labs) ?: Long.MIN_VALUE
     val allEstradiolEntries = entries.filter { it.category == MedicationCategory.ESTRADIOL }
     // Every dose older than the window: keep the latest so the state reads as
     // labs below the modeled signal, not as no dose logged. The snapshot build
-    // reads the window plus the latest dose, so both callers see this entry.
+    // reads the window plus the latest dose, so it always has this entry.
     val estradiolEntries = allEstradiolEntries
         .filter { it.appliedAt.toEpochMilli() >= windowStart }
         .ifEmpty { listOfNotNull(allEstradiolEntries.maxByOrNull { it.appliedAt }) }

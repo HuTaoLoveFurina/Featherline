@@ -565,6 +565,87 @@ class E2DerivationTest {
     }
 
     @Test
+    fun calibrationRender_matchesTheOldPagesRender_withinWhatTheLookbackLeavesOut() {
+        // The page rendered the build's evaluation over the solve's whole
+        // dose history, on a domain anchored to the clock: 17 days before
+        // now to 14 days after. It now renders the stored fit over Home's
+        // 197-day lookback, on a domain anchored to the date. At noon the two
+        // 6 h grids share their knots. A lab 60 days back takes the solve's
+        // history to 240 days; the 43 days the page no longer reads end more
+        // than 180 days before its domain and contribute almost nothing.
+        val noon = now.withHour(12).withMinute(0)
+        val history = (1L..365L).flatMap { daysAgo ->
+            listOf(8, 20).map { hour -> slotDose(noon.toLocalDate().minusDays(daysAgo).atTime(hour, 0), slot = null) }
+        }
+        val labs = listOf(60L to 135.0, 21L to 130.0, 7L to 145.0).mapIndexed { index, (daysAgo, value) ->
+            PkCalibrationLab(
+                resultId = UUID(0L, index + 1L),
+                collectedAtEpochMillis = noon.toLocalDate().minusDays(daysAgo).atTime(9, 0)
+                    .atZone(zoneId).toInstant().toEpochMilli(),
+                valuePgml = value,
+            )
+        }
+        val input = buildPkCalibrationInput(labs = labs, entries = history, weightKg = weightKg, metadata = emptyList())
+        val evaluation = PkCalibrationEngine.evaluate(input)
+        assertEquals(listOf(PkCalibrationRoute.ORAL), evaluation.result.supportedPromotedRoutes)
+        val nowMillis = noon.atZone(zoneId).toInstant().toEpochMilli()
+        val old = checkNotNull(
+            evaluation.renderFor(
+                domain = checkNotNull(
+                    PkChartDomain.create(
+                        rangeStartEpochMillis = nowMillis - 17L * 86_400_000L,
+                        rangeEndEpochMillis = nowMillis + 14L * 86_400_000L,
+                        samplingIntervalMillis = 6L * 3_600_000L,
+                    )
+                ),
+                statusRange = HomePkChartWindow.forNow(noon, zoneId, HomeE2ChartWindowOption.SEVEN_DAYS).range,
+            )
+        )
+        val page = checkNotNull(
+            E2Derivation.deriveCalibrationRender(
+                inputs().copy(
+                    estradiolEntries = history,
+                    fit = E2FitRecord(
+                        fitId = E2Derivation.fitId(input),
+                        epoch = 0,
+                        outcome = FitOutcome.Solved(evaluation.result, input.originEpochMillis),
+                    ),
+                ),
+                noon,
+                zoneId,
+            )
+        )
+
+        assertEquals(old.renderState, page.renderState)
+        assertEquals(old.bandState, page.bandState)
+        assertEquals(PkCalibrationBandState.READY, page.bandState)
+        assertEquals(old.effectivePromotedRoutes, page.effectivePromotedRoutes)
+        assertEquals(old.effectiveDisplayParams, page.effectiveDisplayParams)
+        fun assertClose(expected: Double, actual: Double) =
+            assertEquals(expected, actual, 1e-6 * maxOf(1.0, kotlin.math.abs(expected)))
+        val pageKnots = page.bandKnots.associateBy { knot -> knot.epochMillis }
+        val sharedKnots = old.bandKnots.filter { knot -> knot.epochMillis in pageKnots }
+        // The overlap, 17 days from noon 17 days back to midnight 14 days on,
+        // less half a day: about 120 grid knots, plus the doses in it.
+        assertTrue(sharedKnots.size >= 120)
+        for (knot in sharedKnots) {
+            val pageKnot = pageKnots.getValue(knot.epochMillis)
+            assertEquals(knot.segment, pageKnot.segment)
+            assertClose(knot.p025Pgml, pageKnot.p025Pgml)
+            assertClose(knot.p158655254Pgml, pageKnot.p158655254Pgml)
+            assertClose(knot.p50Pgml, pageKnot.p50Pgml)
+            assertClose(knot.p841344746Pgml, pageKnot.p841344746Pgml)
+            assertClose(knot.p975Pgml, pageKnot.p975Pgml)
+        }
+        val pageCurve = page.centralCurve.associate { point -> point.epochMillis to point.concentrationPgMl }
+        val sharedCurve = old.centralCurve.filter { point -> point.epochMillis in pageCurve }
+        assertTrue(sharedCurve.size >= 120)
+        for (point in sharedCurve) {
+            assertClose(point.concentrationPgMl, pageCurve.getValue(point.epochMillis))
+        }
+    }
+
+    @Test
     fun widgetProjection_servesTheWidgetsSevenDays_onEveryDayTheSnapshotIsValid() {
         // Home's 30-day option no longer reaches the widget: its projection is
         // the seven-day one, and HrtWidget's seven-day trend reads from it on

@@ -255,8 +255,9 @@ Feature sub-packages, one screen tree each:
   (`PkCalibration*`: per-route cards, the routes sheet they open, the
   results-to-check review sheet,
   and the one-time "How estimate calibration works" sheet). It reads
-  `PkCalibrationLiveRepository`, which re-evaluates the fit after each
-  Home snapshot write; review choices are written through
+  `E2EstimateRepository.observeCalibration`, which renders the snapshot's
+  stored fit for the page and takes the lab flags from the results and
+  reviews stored beside it; review choices are written through
   `PkCalibrationStorageRepository`.
 - [`ui/settings`](https://github.com/mkx173/Featherline/tree/8e46ab59d3328a389c20e588bd1e62174dcb8b19/app/src/main/java/com/mkx/hrttracker/ui/settings) — the settings tab.
 - [`ui/security`](https://github.com/mkx173/Featherline/tree/8e46ab59d3328a389c20e588bd1e62174dcb8b19/app/src/main/java/com/mkx/hrttracker/ui/security) — the app-lock screen and
@@ -495,6 +496,17 @@ each rebuild, the dose reminder and the 15-minute widget worker warm it, so
 an ordinary open finds a match. The widget's seven-day projection
 (`widgetPkProjection`) is still built with the snapshot.
 
+The calibration page, its result editor and Home's estimate sheet read
+`E2EstimateRepository.observeCalibration`, the same observation keyed by
+`CalibrationRenderKey`: the stored fit rendered over a domain anchored to
+the date (17 days back to 14 days on), from the same logged doses as Home
+(`pkEntries` reach back 17 + 180 days whatever the option), with the
+accepted, excluded and non-positive flags taken from the `labs` and
+`labMetadata` the same build stored beside the fit. It is never stored.
+The build solves only when the stored fit can't stand in: its `fitId`, a
+digest of everything the solve reads and nothing of the clock, changed; it
+failed; or a Try again raised the requested fit epoch.
+
 Chart-window changes are settings changes, but they change what Home
 draws, so `HomeRepository.setHomeE2ChartWindowOption` writes the option
 inside `runHomeDataMutation` like a Room mutation: the rebuild is in
@@ -512,42 +524,37 @@ last-dose line, which is live Room data. Home's observation marks a
 newer key it is deriving `E2State.pending = USER` when the inputs' generation
 is newer than the one behind the shown value (a committed mutation),
 `SYSTEM` otherwise (the clock, midnight, a zone change, a system rebuild),
-and nothing when the key doesn't move; Home holds with the indicator only
-on `USER` and swaps silently on `SYSTEM`. The calibration page still
-follows `HomeSnapshotRepository.forcedRebuildInFlight` and the build's
-forced flag through `PkCalibrationLiveRepository.updating`.
+and nothing when the key doesn't move; Home and the calibration page hold
+with the indicator only on `USER` and swap silently on `SYSTEM`. Both
+restart their observation each time the app comes to the foreground.
 `MainViewModel` and `CalibrationViewModel` pass their
-inputs through `holdWhileUpdating` (`util/HoldWhileUpdating.kt`), which
+estimates through `holdWhileUpdating` (`util/HoldWhileUpdating.kt`), which
 keeps the settled value and shows `TopUpdatingIndicator` until the
-rebuild lands, for at least `UPDATING_MIN_HOLD_MILLIS` counted from
+new estimate lands, for at least `UPDATING_MIN_HOLD_MILLIS` counted from
 when the screen is visible; `Held.latest` carries the newest value
 through the hold. Home builds the screen from the latest inputs and the
 E2 hero, chart and band from the held estimate, both at the live time and
 display unit, so a unit switch or midnight during a hold still renders
-correctly. The calibration page takes its lab list from the latest
-value and its section from the held solve. A rebuild that lands while
-the screen is hidden releases at once. Home's launch refresh is not
-forced, so the indicator does not show on every start. System events
-(boot, clock or time-zone change, package replaced, the midnight widget
-refresh) do force a rebuild past the usable-snapshot check but pass
-`silent = true` to `refreshHomeSnapshotAsync` /
-`refreshHomeSnapshotIfNeeded`, which keeps them out of
-`forcedRebuildInFlight` and off the build's forced flag: they land in
-the background without the indicator.
+correctly. The calibration page takes its lab list live from Room and its
+section from the held estimate. An estimate that lands while the screen
+is hidden releases at once. System events (boot, clock or time-zone
+change, package replaced, the midnight widget refresh) force a rebuild
+past the usable-snapshot check; it carries no newer generation, so it
+lands as `SYSTEM`, without the indicator.
 
 `E2EstimateRepository.latestHome` holds the newest Home estimate an
 observation admitted or derived, seeded with the stored one. `SettingsViewModel` reads the
 calibration row's basis (`calibration.adjusted`, the status behind Home's
-hero title) from it and seeds its first frame with it, instead of waiting
-on `PkCalibrationLiveRepository`.
+hero title) from it and seeds its first frame with it.
 
 Bundling the calibration fit into the same record as the
 plan-and-fulfillment cache is a known leaky seam:
 
-- Every home-data mutation re-solves the calibration, even when no PK
-  input changed. Read-side observers reject any snapshot whose
-  `generation` is older than the durable generation counter, so stale
-  reads cannot survive a concurrent write.
+- Every home-data mutation rebuilds the E2 inputs with the rest of the
+  snapshot, even when no PK input changed; only the solve is skipped,
+  when the stored fit can stand in. Read-side observers reject any
+  snapshot whose `generation` is older than the durable generation
+  counter, so stale reads cannot survive a concurrent write.
 
 Both layers are correct under their current invariants; the leak is
 that the plan-and-fulfillment cache and the E2 inputs share an
@@ -575,12 +582,11 @@ They are not release blockers.
   conversion) is fragmented across the `model.pk` package and the
   `data` layer; consolidation is gated on the new engine's shape.
 - `HomeSnapshotRepository` bundles the calibration fit into the home-data
-  snapshot, causing a re-solve on every home mutation (see
+  snapshot, causing a rebuild of the E2 inputs on every home mutation (see
   [Home snapshot and PK projection cache](#home-snapshot-and-pk-projection-cache)
   above).
-- Route-scale estimate calibration runs inside the Home snapshot build, which
-  holds the home-data mutation lock, and is evaluated again by
-  `PkCalibrationLiveRepository` after the snapshot write. With many E2
+- Route-scale estimate calibration runs inside the Home snapshot build
+  when the stored fit can't be reused. With many E2
   results the 1-D start grid in `PkJointMapSolver` is the costly part
   (about 0.5 s for 20 results on five routes on a Galaxy S20 debug build
   since the grid step went to 1e-2; the opt-in `PkCalibrationSolverTimingTest`

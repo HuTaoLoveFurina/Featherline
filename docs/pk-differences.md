@@ -685,7 +685,7 @@ The PK engine swap gates three deferred refactors, all enumerated in
   truth.
 - Untangle the calibration fit and the widget's projection from
   `HomeSnapshotRepository` so unrelated home mutations stop
-  re-solving the calibration and re-simulating the widget's curve.
+  re-simulating the widget's curve.
 
 ## Out of scope
 

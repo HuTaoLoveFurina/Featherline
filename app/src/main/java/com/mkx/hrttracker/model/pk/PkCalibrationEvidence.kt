@@ -20,16 +20,10 @@ data class PkCalibrationInput(
     val config: PkCalibrationConfig = PkCalibrationConfig.Default,
 ) {
     val acceptedLabIds: Set<UUID>
-        get() = metadata
-            .filter { it.disposition == E2CalibrationDisposition.REVIEWED }
-            .map { it.resultId }
-            .toSet()
+        get() = metadata.resultIdsWith(E2CalibrationDisposition.REVIEWED)
 
     val excludedLabIds: Set<UUID>
-        get() = metadata
-            .filter { it.disposition == E2CalibrationDisposition.EXCLUDED }
-            .map { it.resultId }
-            .toSet()
+        get() = metadata.resultIdsWith(E2CalibrationDisposition.EXCLUDED)
 }
 
 /**

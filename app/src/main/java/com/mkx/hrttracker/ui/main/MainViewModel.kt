@@ -1,12 +1,11 @@
 package com.mkx.hrttracker.ui.main
 
-import com.mkx.hrttracker.ui.calibration.pkCalibrationUnavailableScreenState
 import com.mkx.hrttracker.ui.calibration.PkCalibrationUiState
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveResult
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
+import com.mkx.hrttracker.ui.calibration.pkCalibrationScreenState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mkx.hrttracker.data.repository.CalibrationEstimate
 import com.mkx.hrttracker.data.repository.E2EstimateRepository
 import com.mkx.hrttracker.data.repository.E2Pending
 import com.mkx.hrttracker.data.repository.E2State
@@ -29,7 +28,6 @@ import com.mkx.hrttracker.model.medication.lowStockSeverityRank
 import com.mkx.hrttracker.model.medication.visibleMedicationEntries
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkCalibrationRoute
-import com.mkx.hrttracker.ui.calibration.pkCalibrationUiState
 import com.mkx.hrttracker.ui.journal.toAnchorRowUiState
 import com.mkx.hrttracker.util.AppTimeSnapshot
 import com.mkx.hrttracker.util.AppTimeSource
@@ -71,7 +69,6 @@ class MainViewModel @Inject constructor(
     private val homeRepository: HomeRepository,
     private val settingsRepository: SettingsRepository,
     private val timeZoneChangeNoticeController: TimeZoneChangeNoticeController,
-    pkCalibrationLiveRepository: PkCalibrationLiveRepository,
     private val e2EstimateRepository: E2EstimateRepository,
     @ProcessLifecycleState processLifecycleState: StateFlow<@JvmSuppressWildcards Lifecycle.State>,
     appTimeSource: AppTimeSource,
@@ -95,15 +92,6 @@ class MainViewModel @Inject constructor(
      * comes between them.
      */
     private var inlineE2Estimate: HomeE2Estimate? = null
-
-    /**
-     * The routes sheet the hero's calibration icon opens: the calibration
-     * page's own evaluation, so both screens show the same route rows. Null
-     * until the first live evaluation finishes.
-     */
-    val pkCalibrationSheetState: StateFlow<PkCalibrationUiState?> = pkCalibrationLiveRepository.liveState
-        .map(::pkCalibrationSheetUiState)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Home's own visibility: the activity collects uiState too, so its
     // subscriber count does not say whether Home is on screen.
@@ -135,6 +123,16 @@ class MainViewModel @Inject constructor(
         appTimeSource.currentMinute.tickWhileSubscribed(_uiState.subscriptionCount) { minute ->
             minute.toLocalDate()
         }
+
+    /**
+     * The routes sheet the hero's calibration icon opens: the calibration
+     * page's own estimate, so both screens show the same route rows. Null
+     * until it is derived.
+     */
+    val pkCalibrationSheetState: StateFlow<PkCalibrationUiState?> = e2EstimateRepository
+        .observeCalibration(gatedMinute)
+        .map { state -> pkCalibrationSheetUiState(state.value) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         viewModelScope.launch {
@@ -612,9 +610,6 @@ class MainViewModel @Inject constructor(
     }
 }
 
-/** Null while the first live evaluation loads; a failed one shows the numeric-failure sheet. */
-internal fun pkCalibrationSheetUiState(live: PkCalibrationLiveResult?): PkCalibrationUiState? = when {
-    live == null -> null
-    else -> live.live?.let { pkCalibrationUiState(it.evaluation.result, it.render) }
-        ?: pkCalibrationUnavailableScreenState().ui
-}
+/** Null while the estimate loads; a failed fit or render shows the numeric-failure sheet. */
+internal fun pkCalibrationSheetUiState(estimate: CalibrationEstimate?): PkCalibrationUiState? =
+    estimate?.let { pkCalibrationScreenState(it).ui }

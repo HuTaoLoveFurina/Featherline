@@ -5,7 +5,7 @@ import com.mkx.hrttracker.data.repository.E2EstimateRepository
 import com.mkx.hrttracker.data.repository.E2Pending
 import com.mkx.hrttracker.data.repository.E2State
 import com.mkx.hrttracker.data.repository.HomeE2Estimate
-import com.mkx.hrttracker.data.repository.PkCalibrationLiveRepository
+import com.mkx.hrttracker.data.repository.CalibrationEstimate
 import com.mkx.hrttracker.data.repository.HomeInputSource
 import com.mkx.hrttracker.data.repository.HomeInputs
 import com.mkx.hrttracker.data.repository.HomeRepository
@@ -35,6 +35,8 @@ import com.mkx.hrttracker.model.medication.testMedicationGroupMedication
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
+import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
+import com.mkx.hrttracker.model.pk.PkCalibrationResult
 import com.mkx.hrttracker.model.pk.PkConcentrationUnit
 import com.mkx.hrttracker.model.pk.PkMedicationSimulation
 import com.mkx.hrttracker.model.pk.PkProjectionResult
@@ -79,15 +81,13 @@ import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
-    private val pkCalibrationLiveRepository = mockk<PkCalibrationLiveRepository> {
-        every { liveState } returns MutableStateFlow(null)
-    }
-
     // The estimator's state: each observation, a restart included, starts
     // from its current value, as the repository's cold start does.
     private val homeEstimates = MutableStateFlow(E2State<HomeE2Estimate>(null))
+    private val calibrationEstimates = MutableStateFlow(E2State<CalibrationEstimate>(null))
     private val e2EstimateRepository = mockk<E2EstimateRepository> {
         every { observeHome(any()) } returns homeEstimates
+        every { observeCalibration(any()) } returns calibrationEstimates
     }
     private val processLifecycleState = MutableStateFlow(Lifecycle.State.STARTED)
 
@@ -129,7 +129,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -187,7 +186,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -228,7 +226,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -250,7 +247,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -280,7 +276,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -308,7 +303,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -359,7 +353,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -386,7 +379,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -412,7 +404,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 9, 0)),
@@ -436,7 +427,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 9, 0)),
@@ -459,7 +449,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(LocalDateTime.of(2026, 4, 30, 9, 0)),
@@ -486,7 +475,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -541,7 +529,6 @@ class MainViewModelTest {
                 homeRepository = homeRepository,
                 settingsRepository = settingsRepository,
                 timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
                 appTimeSource = appTimeSource,
@@ -597,7 +584,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -632,7 +618,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -681,7 +666,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -709,7 +693,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -749,7 +732,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -776,7 +758,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -816,7 +797,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -862,7 +842,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -925,7 +904,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -952,7 +930,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -995,7 +972,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -1032,7 +1008,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1063,7 +1038,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1094,7 +1068,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1132,7 +1105,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1173,7 +1145,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1204,7 +1175,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1240,7 +1210,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1276,7 +1245,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1310,7 +1278,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1346,7 +1313,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1385,7 +1351,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1449,7 +1414,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1503,7 +1467,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = FakeAppTimeSource(now),
@@ -1536,7 +1499,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -1616,7 +1578,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -1677,7 +1638,6 @@ class MainViewModelTest {
             homeRepository = homeRepository,
             settingsRepository = settingsRepository,
             timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-            pkCalibrationLiveRepository = pkCalibrationLiveRepository,
             e2EstimateRepository = e2EstimateRepository,
             processLifecycleState = processLifecycleState,
             appTimeSource = appTimeSource,
@@ -1960,11 +1920,38 @@ class MainViewModelTest {
         assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
     }
 
+    @Test
+    fun theEstimateSheet_showsTheCalibrationPagesLatestEstimate() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        val viewModel = viewModel(now)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.pkCalibrationSheetState.collect { }
+        }
+        advanceUntilIdle()
+        assertNull(viewModel.pkCalibrationSheetState.value)
+
+        fun estimate(result: PkCalibrationResult?) = CalibrationEstimate(
+            result = result,
+            render = null,
+            acceptedLabIds = emptySet(),
+            excludedLabIds = emptySet(),
+            nonPositiveLabIds = emptySet(),
+        )
+        calibrationEstimates.value = E2State(estimate(PkCalibrationResult(PkCalibrationGlobalState.NO_USABLE_LABS)))
+        advanceUntilIdle()
+        assertEquals(PkCalibrationGlobalState.NO_USABLE_LABS, viewModel.pkCalibrationSheetState.value?.globalState)
+
+        // A failed fit or render, while a user change is pending: no hold.
+        calibrationEstimates.value = E2State(estimate(result = null), E2Pending.USER)
+        advanceUntilIdle()
+        assertEquals(true, viewModel.pkCalibrationSheetState.value?.numericFailure)
+    }
+
     private fun viewModel(now: LocalDateTime) = MainViewModel(
         homeRepository = homeRepository,
         settingsRepository = settingsRepository,
         timeZoneChangeNoticeController = timeZoneChangeNoticeController,
-        pkCalibrationLiveRepository = pkCalibrationLiveRepository,
         e2EstimateRepository = e2EstimateRepository,
         processLifecycleState = processLifecycleState,
         appTimeSource = FakeAppTimeSource(now),

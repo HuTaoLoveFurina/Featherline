@@ -2,6 +2,10 @@ package com.mkx.hrttracker.data.repository
 
 import com.mkx.hrttracker.di.AppScope
 import com.mkx.hrttracker.di.DefaultDispatcher
+import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
+import com.mkx.hrttracker.model.pk.PkCalibrationRenderResult
+import com.mkx.hrttracker.model.pk.PkCalibrationResult
+import com.mkx.hrttracker.model.pk.resultIdsWith
 import com.mkx.hrttracker.startup.StartupTiming
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import com.mkx.hrttracker.util.currentMinute
@@ -36,6 +40,7 @@ import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,6 +54,20 @@ enum class E2Pending { USER, SYSTEM }
  * generation is newer than the one behind [value].
  */
 data class E2State<T>(val value: T?, val pending: E2Pending? = null)
+
+/** The calibration page's estimate section: the fit as the page renders it, and the lab flags beside it. */
+data class CalibrationEstimate(
+    /** Null when the solve failed or the render threw: the numeric failure, with Try again. */
+    val result: PkCalibrationResult?,
+    /** Null without a READY fit. */
+    val render: PkCalibrationRenderResult?,
+    // From the labs and review metadata the fit was solved from, stored
+    // beside it, so they always match it and need no Room read.
+    val acceptedLabIds: Set<UUID>,
+    val excludedLabIds: Set<UUID>,
+    /** Results the fit can never use (value ≤ 0). */
+    val nonPositiveLabIds: Set<UUID>,
+)
 
 /**
  * The E2 estimates, derived from the snapshot's inputs and the clock by key.
@@ -66,15 +85,11 @@ class E2EstimateRepository @Inject constructor(
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val diagnosticsLogger: AppDiagnosticsLogger = AppDiagnosticsLogger(),
 ) {
-    // The last keys derived, done or in flight, with the stored estimate
-    // among them: Home, Settings and the warm-up share them, so no key is
-    // derived twice. Guarded by itself.
-    private val homeMemo =
-        object : LinkedHashMap<HomeEstimateKey, Deferred<HomeDerivation>>(4, 0.75f, true) {
-            override fun removeEldestEntry(
-                eldest: MutableMap.MutableEntry<HomeEstimateKey, Deferred<HomeDerivation>>?,
-            ): Boolean = size > HOME_MEMO_SIZE
-        }
+    // The last keys of each kind derived, done or in flight, Home's with the
+    // stored estimate among them: every observer of a kind, and the warm-up,
+    // share them, so no key is derived twice. Each guarded by itself.
+    private val homeMemo = lastKeys<HomeEstimateKey, Deferred<Derivation<HomeE2Estimate>>>()
+    private val calibrationMemo = lastKeys<CalibrationRenderKey, Deferred<Derivation<CalibrationEstimate>>>()
 
     @Volatile
     private var storedKey: HomeEstimateKey? = null
@@ -126,7 +141,7 @@ class E2EstimateRepository @Inject constructor(
         }
         if (stored != null) {
             synchronized(homeMemo) {
-                homeMemo[stored.key] = CompletableDeferred(HomeDerivation(stored.estimate, storable = true))
+                homeMemo[stored.key] = CompletableDeferred(Derivation(stored.estimate, storable = true))
             }
             storedKey = stored.key
             latestHomeState.value = stored.estimate
@@ -144,11 +159,40 @@ class E2EstimateRepository @Inject constructor(
      * value, once shown, is kept while a newer one is pending, including
      * while a mutation's snapshot is cleared.
      */
-    fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = flow {
+    fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = observe(
+        now = now,
+        keyOf = E2Derivation::homeEstimateKey,
+        derivationOf = { key, record, minute, zoneId -> homeDerivation(key, record.e2Inputs(), minute, zoneId) },
+        onAdmitted = { estimate -> latestHomeState.value = estimate },
+    )
+
+    /**
+     * The calibration page's estimate section at [now], under the same rules
+     * as [observeHome]: shared derivations, a cold start, nothing from inputs
+     * that aren't current, [E2Pending.USER] for a change the user made. It
+     * is never stored, so a process's first observation derives it. A render
+     * that throws gives the numeric failure, which is kept like any other
+     * value until the key moves.
+     */
+    fun observeCalibration(now: Flow<LocalDateTime>): Flow<E2State<CalibrationEstimate>> = observe(
+        now = now,
+        keyOf = E2Derivation::calibrationRenderKey,
+        derivationOf = { key, record, minute, zoneId ->
+            calibrationMemo.derivation(key) { deriveCalibration(key, record, minute, zoneId) }
+        },
+    )
+
+    /** One kind of estimate, observed as [observeHome] describes. */
+    private fun <K, T : Any> observe(
+        now: Flow<LocalDateTime>,
+        keyOf: (E2Inputs, LocalDateTime, ZoneId) -> K,
+        derivationOf: (K, HomeSnapshotRecord, LocalDateTime, ZoneId) -> Deferred<Derivation<T>>,
+        onAdmitted: (T) -> Unit = {},
+    ): Flow<E2State<T>> = flow {
         loaded.await()
         val start = currentMinute(clock)
-        var state = E2State<HomeE2Estimate>(null)
-        var shownKey: HomeEstimateKey? = null
+        var state = E2State<T>(null)
+        var shownKey: K? = null
         // The generation of the inputs behind the value.
         var shownGeneration = 0L
         val minutes = now
@@ -170,8 +214,7 @@ class E2EstimateRepository @Inject constructor(
                         emit(state)
                         return@transformLatest
                     }
-                    val inputs = current.e2Inputs()
-                    val key = E2Derivation.homeEstimateKey(inputs, minute, zoneId)
+                    val key = keyOf(current.e2Inputs(), minute, zoneId)
                     if (key == shownKey) {
                         // A change the estimate doesn't read: nothing pending.
                         shownGeneration = current.generation
@@ -179,7 +222,7 @@ class E2EstimateRepository @Inject constructor(
                         emit(state)
                         return@transformLatest
                     }
-                    val derivation = homeDerivation(key, inputs, minute, zoneId)
+                    val derivation = derivationOf(key, current, minute, zoneId)
                     if (!derivation.isCompleted) {
                         val pending = if (state.value != null && current.generation > shownGeneration) {
                             E2Pending.USER
@@ -188,17 +231,17 @@ class E2EstimateRepository @Inject constructor(
                         }
                         emit(state.copy(pending = pending))
                     }
-                    val estimate = derivation.await().estimate
+                    val value = derivation.await().value
                     // The change behind it is spent either way: the clock
                     // moving after it is the system's.
                     shownGeneration = current.generation
-                    state = if (estimate == null) {
+                    state = if (value == null) {
                         // A failed derivation keeps the last value.
                         state.copy(pending = null)
                     } else {
                         shownKey = key
-                        latestHomeState.value = estimate
-                        E2State(estimate)
+                        onAdmitted(value)
+                        E2State(value)
                     }
                     emit(state)
                 }
@@ -222,7 +265,7 @@ class E2EstimateRepository @Inject constructor(
             val key = E2Derivation.homeEstimateKey(inputs, now, zoneId)
             if (key == storedKey) return
             val derived = homeDerivation(key, inputs, now, zoneId).await()
-            val estimate = derived.estimate ?: return
+            val estimate = derived.value ?: return
             if (derived.storable) persist(HomeE2EstimateRecord(key, estimate))
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -236,18 +279,22 @@ class E2EstimateRepository @Inject constructor(
         inputs: E2Inputs,
         now: LocalDateTime,
         zoneId: ZoneId,
-    ): Deferred<HomeDerivation> = synchronized(homeMemo) {
-        homeMemo.getOrPut(key) {
-            appScope.async(defaultDispatcher) {
-                deriveHome(key, inputs, now, zoneId).also { derived ->
-                    // Written behind, outside this derivation, so no one
-                    // waiting for the estimate waits for the disk.
-                    if (derived.storable) {
-                        appScope.launch { persist(HomeE2EstimateRecord(key, checkNotNull(derived.estimate))) }
-                    }
-                }
+    ): Deferred<Derivation<HomeE2Estimate>> = homeMemo.derivation(key) {
+        deriveHome(key, inputs, now, zoneId).also { derived ->
+            // Written behind, outside this derivation, so no one waiting for
+            // the estimate waits for the disk.
+            if (derived.storable) {
+                appScope.launch { persist(HomeE2EstimateRecord(key, checkNotNull(derived.value))) }
             }
         }
+    }
+
+    /** The memo's derivation of [key], started on [defaultDispatcher] on a miss. */
+    private fun <K, T> MutableMap<K, Deferred<Derivation<T>>>.derivation(
+        key: K,
+        derive: () -> Derivation<T>,
+    ): Deferred<Derivation<T>> = synchronized(this) {
+        getOrPut(key) { appScope.async(defaultDispatcher) { derive() } }
     }
 
     private fun deriveHome(
@@ -255,7 +302,7 @@ class E2EstimateRepository @Inject constructor(
         inputs: E2Inputs,
         now: LocalDateTime,
         zoneId: ZoneId,
-    ): HomeDerivation {
+    ): Derivation<HomeE2Estimate> {
         val startNanos = System.nanoTime()
         var bandFailed = false
         val estimate = try {
@@ -273,7 +320,43 @@ class E2EstimateRepository @Inject constructor(
                     "option=${key.option} windowDate=${key.windowDate} " +
                     "failed=${estimate == null} bandFailed=$bandFailed"
         )
-        return HomeDerivation(estimate, storable = estimate != null && !bandFailed)
+        return Derivation(estimate, storable = estimate != null && !bandFailed)
+    }
+
+    private fun deriveCalibration(
+        key: CalibrationRenderKey,
+        record: HomeSnapshotRecord,
+        now: LocalDateTime,
+        zoneId: ZoneId,
+    ): Derivation<CalibrationEstimate> {
+        val startNanos = System.nanoTime()
+        val inputs = record.e2Inputs()
+        var failed = false
+        val render = try {
+            E2Derivation.deriveCalibrationRender(inputs, now, zoneId)
+        } catch (exception: Exception) {
+            // Shown as the numeric failure with Try again; the log is the
+            // only trace of why.
+            failed = true
+            diagnosticsLogger.warning(TAG, "calibration_render_failed", exception)
+            null
+        }
+        diagnosticsLogger.info(
+            TAG,
+            "calibration_render_derived ms=${(System.nanoTime() - startNanos) / 1_000_000L} " +
+                    "option=${key.option} windowDate=${key.windowDate} failed=$failed"
+        )
+        return Derivation(
+            CalibrationEstimate(
+                result = (inputs.fit?.outcome as? FitOutcome.Solved)?.result?.takeUnless { failed },
+                render = render,
+                acceptedLabIds = record.labMetadata.resultIdsWith(E2CalibrationDisposition.REVIEWED),
+                excludedLabIds = record.labMetadata.resultIdsWith(E2CalibrationDisposition.EXCLUDED),
+                nonPositiveLabIds = record.labs
+                    .filter { lab -> lab.valuePgml <= 0.0 }
+                    .mapTo(HashSet()) { lab -> lab.resultId },
+            ),
+        )
     }
 
     /**
@@ -305,17 +388,23 @@ class E2EstimateRepository @Inject constructor(
     private class Reported(val record: HomeSnapshotRecord?)
 
     /**
-     * One derivation: a null [estimate] when it threw. Not [storable] when it
-     * or its band render threw: such a result is kept in the memo, so it
-     * isn't derived again on every tick, but never stored, so a restart tries
-     * again.
+     * One derivation. Home's has a null [value] when it threw; the calibration
+     * page's always has one, the numeric failure when its render threw. Not
+     * [storable] when Home's, or its band render, threw: such a result is kept
+     * in the memo, so it isn't derived again on every tick, but never stored,
+     * so a restart tries again. Only Home's estimate is ever stored.
      */
-    private class HomeDerivation(val estimate: HomeE2Estimate?, val storable: Boolean)
+    private class Derivation<T>(val value: T?, val storable: Boolean = false)
 
     private companion object {
         const val TAG = "E2EstimateRepository"
-        const val HOME_MEMO_SIZE = 2
+        const val MEMO_SIZE = 2
         const val INPUTS_RETRY_DELAY_MILLIS = 1_000L
+
+        /** Access-ordered: keeps the [MEMO_SIZE] keys used last. */
+        fun <K, V> lastKeys(): MutableMap<K, V> = object : LinkedHashMap<K, V>(4, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean = size > MEMO_SIZE
+        }
     }
 }
 
