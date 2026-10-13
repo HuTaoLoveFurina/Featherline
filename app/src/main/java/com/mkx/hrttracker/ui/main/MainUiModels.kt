@@ -41,7 +41,6 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 data class MainUiState(
@@ -408,44 +407,20 @@ internal fun mainE2ChartNoonTickHours(
     return tickHours.distinct()
 }
 
-// The 30-day axis labels days at noon on nested grids — a base step, then
-// 3-day, then daily, all through the same anchor day — so zooming only adds
-// or removes labels between the ones on screen; none moves or changes date.
-internal data class MainE2ChartAxisGrid(val stepDays: Int, val anchorDay: Int)
-
-// The base grid, shown unzoomed: four labels nine days apart centred in the
-// window, or five six days apart when the nine-day grid doesn't fit — its
-// outer labels nearer than `minEdgeHours` to the window's ends, or its labels
-// nearer than `minStepHours` to each other, both measured at full view.
-internal fun mainE2ChartAxisBaseGrid(
-    windowHours: Int,
-    minEdgeHours: Double,
-    minStepHours: Double,
-): MainE2ChartAxisGrid {
-    val windowDays = windowHours / 24
-    val grids = listOf(9 to 4, 6 to 5).map { (stepDays, count) ->
-        val spanDays = stepDays * (count - 1)
-        // First noon as near as a noon gets to (windowDays - spanDays) / 2 in.
-        val anchorDay = ((windowDays - spanDays) / 2.0 - 0.5).roundToInt()
-        MainE2ChartAxisGrid(stepDays, anchorDay) to spanDays
-    }
-    return grids.firstOrNull { (grid, spanDays) ->
-        val firstHours = grid.anchorDay * 24 + 12.0
-        val lastHours = firstHours + spanDays * 24
-        grid.stepDays * 24 >= minStepHours &&
-            firstHours >= minEdgeHours &&
-            windowHours - lastHours >= minEdgeHours
-    }?.first ?: grids.last().first
-}
+// The 30-day axis labels days at noon on nested grids: every six days
+// unzoomed — five labels, centred in the window — then every three, then
+// daily, all through the same anchor day, so zooming only adds or removes
+// labels between the ones on screen; none moves or changes date.
+internal const val MainE2ChartAxisBaseStepDays = 6
 
 // Noon xHours (relative to the midnight window start) of the days every
-// `stepDays` through `anchorDay`.
-internal fun mainE2ChartAxisGridHours(
-    windowHours: Int,
-    anchorDay: Int,
-    stepDays: Int,
-): List<Double> {
-    return (Math.floorMod(anchorDay, stepDays) until windowHours / 24 step stepDays)
+// `stepDays` through the anchor: the day that puts the first of the five
+// unzoomed labels as many days from the window's first day as the last is
+// from its last day, or a day nearer if uneven.
+internal fun mainE2ChartAxisGridHours(windowHours: Int, stepDays: Int): List<Double> {
+    val windowDays = windowHours / 24
+    val anchorDay = (windowDays - 1 - MainE2ChartAxisBaseStepDays * 4) / 2
+    return (Math.floorMod(anchorDay, stepDays) until windowDays step stepDays)
         .map { day -> day * 24 + 12.0 }
 }
 

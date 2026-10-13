@@ -244,35 +244,15 @@ class MainUiModelsTest {
     }
 
     @Test
-    fun mainE2ChartAxisBaseGrid_prefersCentredNineDayGridThenSixDay() {
-        // Narrow labels: four nine-day labels on days 1, 10, 19, 28 fit.
-        assertEquals(
-            MainE2ChartAxisGrid(stepDays = 9, anchorDay = 1),
-            mainE2ChartAxisBaseGrid(720, minEdgeHours = 30.0, minStepHours = 100.0),
-        )
-        // S20-like: the nine-day grid's outer labels (36h from the ends) clip,
-        // so five six-day labels on days 3, 9, 15, 21, 27 (84h/60h margins).
-        assertEquals(
-            MainE2ChartAxisGrid(stepDays = 6, anchorDay = 3),
-            mainE2ChartAxisBaseGrid(720, minEdgeHours = 50.0, minStepHours = 134.0),
-        )
-        // Nothing fits: fall back to the six-day grid.
-        assertEquals(
-            MainE2ChartAxisGrid(stepDays = 6, anchorDay = 3),
-            mainE2ChartAxisBaseGrid(720, minEdgeHours = 70.0, minStepHours = 200.0),
-        )
-    }
-
-    @Test
-    fun mainE2ChartAxisGridHours_finerStepsKeepEveryCoarserLabel() {
-        val nineDay = mainE2ChartAxisGridHours(720, anchorDay = 1, stepDays = 9)
-        assertEquals(listOf(36.0, 252.0, 468.0, 684.0), nineDay)
-        val sixDay = mainE2ChartAxisGridHours(720, anchorDay = 3, stepDays = 6)
-        assertEquals(listOf(84.0, 228.0, 372.0, 516.0, 660.0), sixDay)
-        // Same anchor, finer steps: every coarser label stays put.
-        assertTrue(mainE2ChartAxisGridHours(720, anchorDay = 1, stepDays = 3).containsAll(nineDay))
-        assertTrue(mainE2ChartAxisGridHours(720, anchorDay = 3, stepDays = 3).containsAll(sixDay))
-        assertEquals(30, mainE2ChartAxisGridHours(720, anchorDay = 1, stepDays = 1).size)
+    fun mainE2ChartAxisGridHours_centresFiveLabelsAndNestsFinerSteps() {
+        // Days 2, 8, 14, 20, 26 of a 30-day window: 2 days in from the first
+        // day, 3 from the last.
+        val base = mainE2ChartAxisGridHours(720, stepDays = 6)
+        assertEquals(listOf(60.0, 204.0, 348.0, 492.0, 636.0), base)
+        // Finer steps keep every base label; the coarser fallback is a subset.
+        assertTrue(mainE2ChartAxisGridHours(720, stepDays = 3).containsAll(base))
+        assertEquals(30, mainE2ChartAxisGridHours(720, stepDays = 1).size)
+        assertEquals(listOf(60.0, 348.0, 636.0), mainE2ChartAxisGridHours(720, stepDays = 12))
     }
 
     @Test

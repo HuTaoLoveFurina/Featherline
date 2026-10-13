@@ -2454,27 +2454,19 @@ private class ExtraStoreAwareHorizontalAxisItemPlacer : HorizontalAxis.ItemPlace
             }
 
             HomeE2ChartWindowOption.THIRTY_DAYS -> {
-                // The base grid is picked at the full-view scale, so it never
-                // changes mid-zoom; the step then refines through nested grids
-                // while labels fit and no more than about seven are on screen.
-                val fullHours = fullXRange.endInclusive - fullXRange.start
-                val fullViewPxPerHour = context.layerBounds.width / fullHours
+                // Densest nested step whose labels fit, with no more than about
+                // seven on screen; every other base label if even that's tight.
                 val pxPerHour = context.layerDimensions.xSpacing / context.ranges.xStep
                 val minStepPx = maxLabelWidth + with(context) { MainE2ChartAxisLabelGap.pixels }
-                val grid = mainE2ChartAxisBaseGrid(
-                    windowHours = spec.chartWindowHours,
-                    minEdgeHours = maxLabelWidth / 2 / fullViewPxPerHour,
-                    minStepHours = minStepPx / fullViewPxPerHour,
-                )
                 val visibleDays = (visibleXRange.endInclusive - visibleXRange.start) / 24
-                val stepDays = listOf(1, 3, grid.stepDays).firstOrNull { step ->
+                val stepDays = listOf(1, 3, MainE2ChartAxisBaseStepDays).firstOrNull { step ->
                     step >= visibleDays / 7 && step * 24 * pxPerHour >= minStepPx
-                } ?: (grid.stepDays * 2)
+                } ?: (MainE2ChartAxisBaseStepDays * 2)
                 // Vico ellipsizes a label nearer the window's ends than half its
                 // width. Labels just outside the viewport stay, so they scroll
                 // in under the clip instead of popping in.
                 val halfLabelHours = maxLabelWidth / 2 / pxPerHour
-                mainE2ChartAxisGridHours(spec.chartWindowHours, grid.anchorDay, stepDays)
+                mainE2ChartAxisGridHours(spec.chartWindowHours, stepDays)
                     .filter { x ->
                         x - fullXRange.start >= halfLabelHours &&
                             fullXRange.endInclusive - x >= halfLabelHours &&
@@ -2527,11 +2519,8 @@ private class ExtraStoreAwareHorizontalAxisItemPlacer : HorizontalAxis.ItemPlace
             ?: return listOf(fullXRange.start)
         val ticks = when (spec.chartWindowOption) {
             HomeE2ChartWindowOption.SEVEN_DAYS -> noonTicksFor(spec)
-            HomeE2ChartWindowOption.THIRTY_DAYS -> mainE2ChartAxisGridHours(
-                windowHours = spec.chartWindowHours,
-                anchorDay = 0,
-                stepDays = 1,
-            )
+            HomeE2ChartWindowOption.THIRTY_DAYS ->
+                mainE2ChartAxisGridHours(windowHours = spec.chartWindowHours, stepDays = 1)
         }
         return ticks.ifEmpty { listOf(fullXRange.start) }
     }
