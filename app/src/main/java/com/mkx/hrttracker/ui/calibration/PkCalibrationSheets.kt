@@ -123,7 +123,7 @@ private fun PkCalibrationSheetItem(
         title = stringResource(titleRes),
         supportingText = stringResource(bodyRes),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        titleTextStyle = MaterialTheme.typography.titleMedium,
+        titleTextStyle = MaterialTheme.typography.bodyMedium,
         supportingTextStyle = MaterialTheme.typography.bodySmall,
         leadingContent = { PkCalibrationSheetIcon(iconRes) },
     )
@@ -342,6 +342,7 @@ private fun PkCalibrationRouteCard(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                             size = HrtPillSize.Small,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
