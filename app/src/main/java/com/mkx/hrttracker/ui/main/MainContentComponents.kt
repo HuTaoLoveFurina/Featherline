@@ -181,6 +181,7 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -333,6 +334,30 @@ private val MainE2ChartPlotHeight = 184.dp
 private val MainE2ChartMinimapHeight = 48.dp
 private val MainE2ChartMinimapHorizontalInset = 5.dp
 private val MainE2ChartMinimapResetButtonSize = 32.dp
+private val MainE2ChartMinimapDateLabelGap = 8.dp
+private val MainE2ChartAxisLabelGap = 4.dp
+
+// Start label pins to the viewport's left edge and end label to its right
+// edge, both clamped to the canvas. When a narrow viewport would make them
+// collide, the pair is laid out side by side, centred on the viewport.
+internal fun mainE2ChartMinimapDateLabelXs(
+    canvasWidth: Int,
+    viewportLeft: Float,
+    viewportWidth: Float,
+    startWidth: Int,
+    endWidth: Int,
+    gap: Int,
+): Pair<Int, Int> {
+    val startX = viewportLeft.roundToInt()
+        .coerceIn(0, (canvasWidth - startWidth).coerceAtLeast(0))
+    val endX = ((viewportLeft + viewportWidth).roundToInt() - endWidth)
+        .coerceIn(0, (canvasWidth - endWidth).coerceAtLeast(0))
+    if (startX + startWidth + gap <= endX) return startX to endX
+    val pairWidth = startWidth + gap + endWidth
+    val pairX = ((viewportLeft + viewportWidth / 2f).roundToInt() - pairWidth / 2)
+        .coerceIn(0, (canvasWidth - pairWidth).coerceAtLeast(0))
+    return pairX to pairX + startWidth + gap
+}
 private val PreviewManualEntryUuid = UUID.fromString("d54fbd94-9631-4c20-b79f-9e431d51a719")
 
 private enum class MainTodayTimeRange(
@@ -1403,13 +1428,13 @@ internal fun MainE2ChartCard(
                                                                 )
                                                             )
                                                         ),
-                                                    interpolator = LineCartesianLayer.Interpolator.catmullRom(),
+                                                    interpolator = MonotoneCubicInterpolator,
                                                 ),
                                                 LineCartesianLayer.rememberLine(
                                                     fill = LineCartesianLayer.LineFill.single(
                                                         Fill(lineColor.copy(alpha = MainE2ChartPredictedAlpha))
                                                     ),
-                                                    interpolator = LineCartesianLayer.Interpolator.catmullRom(),
+                                                    interpolator = MonotoneCubicInterpolator,
                                                 ),
                                                 LineCartesianLayer.rememberLine(
                                                     fill = LineCartesianLayer.LineFill.single(
@@ -1983,6 +2008,19 @@ private fun MainE2ChartMinimap(
             ?: viewportMetrics(canvasWidth)
     }
 
+    fun dateLabelXs(gap: Int): Pair<Int, Int> {
+        val canvasWidth = minimapCanvasSize.value.width
+        val (viewportLeft, viewportWidth) = dateLabelViewportMetrics(canvasWidth.toFloat())
+        return mainE2ChartMinimapDateLabelXs(
+            canvasWidth = canvasWidth,
+            viewportLeft = viewportLeft,
+            viewportWidth = viewportWidth,
+            startWidth = startDateLabelSize.value.width,
+            endWidth = endDateLabelSize.value.width,
+            gap = gap,
+        )
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth(),
@@ -2335,17 +2373,7 @@ private fun MainE2ChartMinimap(
                         modifier = Modifier
                             .onSizeChanged { startDateLabelSize.value = it }
                             .offset {
-                                val (viewportLeft, _) = dateLabelViewportMetrics(
-                                    minimapCanvasSize.value.width.toFloat()
-                                )
-                                val maxX = (
-                                        minimapCanvasSize.value.width -
-                                                startDateLabelSize.value.width
-                                        ).coerceAtLeast(0)
-                                IntOffset(
-                                    x = viewportLeft.roundToInt().coerceIn(0, maxX),
-                                    y = 0,
-                                )
+                                IntOffset(x = dateLabelXs(MainE2ChartMinimapDateLabelGap.roundToPx()).first, y = 0)
                             },
                     )
                     Text(
@@ -2358,19 +2386,7 @@ private fun MainE2ChartMinimap(
                         modifier = Modifier
                             .onSizeChanged { endDateLabelSize.value = it }
                             .offset {
-                                val (viewportLeft, viewportWidth) = dateLabelViewportMetrics(
-                                    minimapCanvasSize.value.width.toFloat()
-                                )
-                                val maxX = (
-                                        minimapCanvasSize.value.width -
-                                                endDateLabelSize.value.width
-                                        ).coerceAtLeast(0)
-                                val x = (viewportLeft + viewportWidth).roundToInt() -
-                                        endDateLabelSize.value.width
-                                IntOffset(
-                                    x = x.coerceIn(0, maxX),
-                                    y = 0,
-                                )
+                                IntOffset(x = dateLabelXs(MainE2ChartMinimapDateLabelGap.roundToPx()).second, y = 0)
                             },
                     )
                 }
@@ -2433,12 +2449,22 @@ private class ExtraStoreAwareHorizontalAxisItemPlacer : HorizontalAxis.ItemPlace
 
             HomeE2ChartWindowOption.THIRTY_DAYS -> {
                 val visibleHours = visibleXRange.endInclusive - visibleXRange.start
+                // Vico ellipsizes a label wider than the gap to its neighbours
+                // (or twice its distance to the chart's ends), so widen the
+                // interval until the widest label fits, and drop edge ticks
+                // too close to the ends — large font scales on narrow screens.
+                val pxPerHour = context.layerDimensions.xSpacing / context.ranges.xStep
+                val neededWidth = maxLabelWidth + with(context) { MainE2ChartAxisLabelGap.pixels }
+                val fitDays = ceil(neededWidth / (pxPerHour * 24.0)).toLong()
                 mainE2ChartAxisLabelTickHours(
                     chartWindowStart = spec.chartWindowStart,
                     chartWindowHours = spec.chartWindowHours,
                     visibleXRange = visibleXRange,
-                    intervalDays = mainE2ChartAxisTickIntervalDays(visibleHours),
-                )
+                    intervalDays = maxOf(mainE2ChartAxisTickIntervalDays(visibleHours), fitDays),
+                ).filter { x ->
+                    val edgeHours = minOf(x - fullXRange.start, fullXRange.endInclusive - x)
+                    2 * edgeHours * pxPerHour >= maxLabelWidth
+                }
             }
         }
     }
