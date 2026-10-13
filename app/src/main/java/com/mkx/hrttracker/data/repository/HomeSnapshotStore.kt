@@ -1,8 +1,21 @@
 package com.mkx.hrttracker.data.repository
 
+import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
+import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
+import com.mkx.hrttracker.model.pk.PkCalibrationInput
+import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
+import com.mkx.hrttracker.model.pk.PkCalibrationPromotedCovariance
+import com.mkx.hrttracker.model.pk.PkCalibrationReason
+import com.mkx.hrttracker.model.pk.PkCalibrationResult
 import com.mkx.hrttracker.model.pk.PkCalibrationRoute
+import com.mkx.hrttracker.model.pk.PkConcentrationUnit
+import com.mkx.hrttracker.model.pk.PkDoseEvent
+import com.mkx.hrttracker.model.pk.PkDoseMarker
 import com.mkx.hrttracker.model.pk.PkPersonalParams
 import com.mkx.hrttracker.model.pk.PkPredictiveBandKnot
+import com.mkx.hrttracker.model.pk.PkProjectionResult
+import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
+import com.mkx.hrttracker.model.pk.PkRouteCalibrationResult
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -66,6 +79,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.roundToLong
 
 private val Context.homeSnapshotDataStore: DataStore<HomeSnapshotState> by dataStore(
     fileName = "home_snapshot.pb",
@@ -137,9 +151,9 @@ data class HomeSnapshotRecord(
     val anchorDateEpochDay: Long,
     val zoneId: String,
     val pkProjection: HomePkProjectionRecord?,
-    // Sibling of pkProjection simulated with plannedEntries=emptyList(). The
-    // widget reads this to display the current body-state estimate from logged
-    // doses only — without it, a planned dose 30 min from now would distort the
+    // Sibling of pkProjection from logged doses only, over seven days whatever
+    // Home's option. The widget reads this to display the current body-state
+    // estimate — without it, a planned dose 30 min from now would distort the
     // widget's "current" reading. Nullable so test fixtures don't have to fill
     // it; refresh always populates both projections in the same pass.
     val widgetPkProjection: HomePkProjectionRecord? = null,
@@ -343,23 +357,8 @@ internal object HomeSnapshotCodec {
                 writeString(route)
                 writeDouble(beta)
             }
-            stream.writeList(record.pkBandKnots) { knot ->
-                writeLong(knot.epochMillis)
-                writeDouble(knot.p025Pgml)
-                writeDouble(knot.p158655254Pgml)
-                writeDouble(knot.p50Pgml)
-                writeDouble(knot.p841344746Pgml)
-                writeDouble(knot.p975Pgml)
-                writeInt(knot.segment)
-            }
-            stream.writeBoolean(record.pkCalibration != null)
-            record.pkCalibration?.let { calibration ->
-                stream.writeBoolean(calibration.adjusted)
-                stream.writeBoolean(calibration.limitedConfidence)
-                stream.writeBoolean(calibration.renderUnavailable)
-                stream.writeBoolean(calibration.bandUnavailable)
-                stream.writeList(calibration.effectiveRoutes) { route -> writeString(route) }
-            }
+            stream.writeList(record.pkBandKnots) { knot -> writeHomePkBandKnotRecord(knot) }
+            stream.writeHomePkCalibrationRecord(record.pkCalibration)
         }
         return output.toByteArray()
     }
@@ -388,29 +387,278 @@ internal object HomeSnapshotCodec {
                 pkEntries = stream.readPooledMedicationLogEntries(),
                 homeAnchor = stream.readTrackedDate(),
                 pkRouteLogScale = stream.readList { readString() to readDouble() }.toMap(),
-                pkBandKnots = stream.readList {
-                    HomePkBandKnotRecord(
-                        epochMillis = readLong(),
-                        p025Pgml = readDouble(),
-                        p158655254Pgml = readDouble(),
-                        p50Pgml = readDouble(),
-                        p841344746Pgml = readDouble(),
-                        p975Pgml = readDouble(),
-                        segment = readInt(),
-                    )
-                },
-                pkCalibration = if (stream.readBoolean()) {
-                    HomePkCalibrationRecord(
-                        adjusted = stream.readBoolean(),
-                        limitedConfidence = stream.readBoolean(),
-                        renderUnavailable = stream.readBoolean(),
-                        bandUnavailable = stream.readBoolean(),
-                        effectiveRoutes = stream.readList { readString() },
-                    )
-                } else {
-                    null
-                },
+                pkBandKnots = stream.readList { readHomePkBandKnotRecord() },
+                pkCalibration = stream.readHomePkCalibrationRecord(),
             )
+        }
+    }
+
+    /** The fit as it is stored; [E2Derivation.fitKey] digests exactly these bytes. */
+    fun encodeFit(record: E2FitRecord): ByteArray = encodeWith { writeE2FitRecord(record) }
+
+    fun decodeFit(bytes: ByteArray): E2FitRecord = decodeWith(bytes) { readE2FitRecord() }
+
+    fun encodeHomeEstimate(record: HomeE2EstimateRecord): ByteArray = encodeWith {
+        writeInt(HOME_E2_ESTIMATE_CODEC_VERSION)
+        writeHomeEstimateKey(record.key)
+        writePkProjection(record.estimate.projection)
+        writeList(record.estimate.bandKnots) { knot -> writeHomePkBandKnotRecord(knot) }
+        writeHomePkCalibrationRecord(record.estimate.calibration)
+    }
+
+    fun decodeHomeEstimate(bytes: ByteArray): HomeE2EstimateRecord = decodeWith(bytes) {
+        val version = readInt()
+        require(version == HOME_E2_ESTIMATE_CODEC_VERSION) {
+            "Unsupported Home E2 estimate version: $version."
+        }
+        HomeE2EstimateRecord(
+            key = readHomeEstimateKey(),
+            estimate = HomeE2Estimate(
+                projection = readPkProjection(),
+                bandKnots = readList { readHomePkBandKnotRecord() },
+                calibration = readHomePkCalibrationRecord(),
+            ),
+        )
+    }
+
+    /**
+     * Canonical bytes of what a solve reads, for [E2Derivation.fitId]. Labs
+     * and the review sets are sorted (the solve sorts them too); dose events
+     * keep their order and are written in absolute time, so the origin drops
+     * out.
+     */
+    fun encodeFitInput(input: PkCalibrationInput): ByteArray = encodeWith {
+        writeInt(PK_ENGINE_VERSION)
+        writeList(input.labs.sortedBy { lab -> lab.resultId.toString() }) { lab ->
+            writeString(lab.resultId.toString())
+            writeLong(lab.collectedAtEpochMillis)
+            writeDouble(lab.valuePgml)
+        }
+        writePkDoseEvents(input.doseEvents, input.originEpochMillis)
+        writeList(input.acceptedLabIds.map(UUID::toString).sorted()) { id -> writeString(id) }
+        writeList(input.excludedLabIds.map(UUID::toString).sorted()) { id -> writeString(id) }
+        writeDouble(input.weightKg)
+        writeDouble(input.config.drugMinInformativePgml)
+        writeDouble(input.config.rLog)
+    }
+
+    /** Canonical bytes of [events], whose `timeH` is relative to [anchorEpochMillis], for the estimate keys. */
+    fun encodeDoseEvents(events: List<PkDoseEvent>, anchorEpochMillis: Long): ByteArray =
+        encodeWith { writePkDoseEvents(events, anchorEpochMillis) }
+
+    private inline fun encodeWith(writeRecord: DataOutputStream.() -> Unit): ByteArray {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).use { stream -> stream.writeRecord() }
+        return output.toByteArray()
+    }
+
+    private inline fun <T> decodeWith(bytes: ByteArray, readRecord: DataInputStream.() -> T): T =
+        DataInputStream(ByteArrayInputStream(bytes)).use { stream -> stream.readRecord() }
+
+    private fun DataOutputStream.writeHomePkBandKnotRecord(knot: HomePkBandKnotRecord) {
+        writeLong(knot.epochMillis)
+        writeDouble(knot.p025Pgml)
+        writeDouble(knot.p158655254Pgml)
+        writeDouble(knot.p50Pgml)
+        writeDouble(knot.p841344746Pgml)
+        writeDouble(knot.p975Pgml)
+        writeInt(knot.segment)
+    }
+
+    private fun DataInputStream.readHomePkBandKnotRecord(): HomePkBandKnotRecord {
+        return HomePkBandKnotRecord(
+            epochMillis = readLong(),
+            p025Pgml = readDouble(),
+            p158655254Pgml = readDouble(),
+            p50Pgml = readDouble(),
+            p841344746Pgml = readDouble(),
+            p975Pgml = readDouble(),
+            segment = readInt(),
+        )
+    }
+
+    private fun DataOutputStream.writeHomePkCalibrationRecord(record: HomePkCalibrationRecord?) {
+        writeBoolean(record != null)
+        record ?: return
+        writeBoolean(record.adjusted)
+        writeBoolean(record.limitedConfidence)
+        writeBoolean(record.renderUnavailable)
+        writeBoolean(record.bandUnavailable)
+        writeList(record.effectiveRoutes) { route -> writeString(route) }
+    }
+
+    private fun DataInputStream.readHomePkCalibrationRecord(): HomePkCalibrationRecord? {
+        if (!readBoolean()) return null
+        return HomePkCalibrationRecord(
+            adjusted = readBoolean(),
+            limitedConfidence = readBoolean(),
+            renderUnavailable = readBoolean(),
+            bandUnavailable = readBoolean(),
+            effectiveRoutes = readList { readString() },
+        )
+    }
+
+    // A derived projection: the window, unit and samples of the snapshot's
+    // projection record, without its generation time, expiry or fingerprint.
+    private fun DataOutputStream.writePkProjection(projection: PkProjectionResult) {
+        writeLong(projection.windowStart.toEpochMilli())
+        writeLong(projection.windowEnd.toEpochMilli())
+        writeString(projection.concentrationUnit.name)
+        writeList(projection.timeH) { value -> writeDouble(value) }
+        writeList(projection.concentrations) { value -> writeDouble(value) }
+        writeList(projection.doseMarkers) { marker ->
+            writeDouble(marker.timeH)
+            writeDouble(marker.concentration)
+            writeBoolean(marker.isPlanned)
+        }
+    }
+
+    private fun DataInputStream.readPkProjection(): PkProjectionResult {
+        return PkProjectionResult(
+            windowStart = Instant.ofEpochMilli(readLong()),
+            windowEnd = Instant.ofEpochMilli(readLong()),
+            concentrationUnit = PkConcentrationUnit.valueOf(readString()),
+            timeH = readList { readDouble() },
+            concentrations = readList { readDouble() },
+            doseMarkers = readList {
+                PkDoseMarker(
+                    timeH = readDouble(),
+                    concentration = readDouble(),
+                    isPlanned = readBoolean(),
+                )
+            },
+        )
+    }
+
+    private fun DataOutputStream.writeHomeEstimateKey(key: HomeEstimateKey) {
+        writeInt(key.engine)
+        writeNullableString(key.fitKey?.hex)
+        writeDouble(key.weightKg)
+        writeString(key.logged.hex)
+        writeString(key.planned.hex)
+        writeString(key.option.name)
+        writeLong(key.windowDate.toEpochDay())
+        writeString(key.zoneId)
+    }
+
+    private fun DataInputStream.readHomeEstimateKey(): HomeEstimateKey {
+        return HomeEstimateKey(
+            engine = readInt(),
+            fitKey = readNullableString()?.let(::Digest),
+            weightKg = readDouble(),
+            logged = Digest(readString()),
+            planned = Digest(readString()),
+            option = HomeE2ChartWindowOption.valueOf(readString()),
+            windowDate = LocalDate.ofEpochDay(readLong()),
+            zoneId = readString(),
+        )
+    }
+
+    private fun DataOutputStream.writeE2FitRecord(record: E2FitRecord) {
+        writeString(record.fitId.hex)
+        writeInt(record.epoch)
+        when (val outcome = record.outcome) {
+            is FitOutcome.Solved -> {
+                writeByte(FIT_OUTCOME_SOLVED)
+                writeLong(outcome.originEpochMillis)
+                writePkCalibrationResult(outcome.result)
+            }
+
+            FitOutcome.Failed -> writeByte(FIT_OUTCOME_FAILED)
+        }
+    }
+
+    private fun DataInputStream.readE2FitRecord(): E2FitRecord {
+        return E2FitRecord(
+            fitId = Digest(readString()),
+            epoch = readInt(),
+            outcome = when (val discriminator = readByte().toInt()) {
+                FIT_OUTCOME_SOLVED -> FitOutcome.Solved(
+                    originEpochMillis = readLong(),
+                    result = readPkCalibrationResult(),
+                )
+
+                FIT_OUTCOME_FAILED -> FitOutcome.Failed
+                else -> error("Unknown fit outcome discriminator: $discriminator")
+            },
+        )
+    }
+
+    // Sets and maps are written sorted, so equal results encode identically.
+    private fun DataOutputStream.writePkCalibrationResult(result: PkCalibrationResult) {
+        writeString(result.globalState.name)
+        writeList(result.routeResults) { row ->
+            writeString(row.route.stableId)
+            writeString(row.displayState.name)
+            writeList(row.reasons.sorted()) { reason -> writeString(reason.name) }
+            writeNullableDouble(row.fittedBeta)
+            writeNullableDouble(row.betaPosteriorSd)
+            writeInt(row.supportingLabCount)
+            writeNullableDouble(row.minStudentTWeight)
+            writeList(row.unreviewedOutlierLabIds.map(UUID::toString).sorted()) { id -> writeString(id) }
+        }
+        writeBoolean(result.promotedBetaCovariance != null)
+        result.promotedBetaCovariance?.let { covariance ->
+            writeList(covariance.routes) { route -> writeString(route.stableId) }
+            writeList(covariance.values) { row -> writeList(row) { value -> writeDouble(value) } }
+        }
+        writeList(result.ignoredLabs.entries.sortedBy { (id, _) -> id.toString() }) { (id, reason) ->
+            writeString(id.toString())
+            writeString(reason.name)
+        }
+    }
+
+    private fun DataInputStream.readPkCalibrationResult(): PkCalibrationResult {
+        return PkCalibrationResult(
+            globalState = PkCalibrationGlobalState.valueOf(readString()),
+            routeResults = readList {
+                PkRouteCalibrationResult(
+                    route = readPkCalibrationRoute(),
+                    displayState = PkRouteCalibrationDisplayState.valueOf(readString()),
+                    reasons = readList { PkCalibrationReason.valueOf(readString()) }.toSet(),
+                    fittedBeta = readNullableDouble(),
+                    betaPosteriorSd = readNullableDouble(),
+                    supportingLabCount = readInt(),
+                    minStudentTWeight = readNullableDouble(),
+                    unreviewedOutlierLabIds = readList { UUID.fromString(readString()) }.toSet(),
+                )
+            },
+            promotedBetaCovariance = if (readBoolean()) {
+                PkCalibrationPromotedCovariance(
+                    routes = readList { readPkCalibrationRoute() },
+                    values = readList { readList { readDouble() } },
+                )
+            } else {
+                null
+            },
+            ignoredLabs = readList {
+                UUID.fromString(readString()) to PkCalibrationLabIgnoreReason.valueOf(readString())
+            }.toMap(),
+        )
+    }
+
+    private fun DataInputStream.readPkCalibrationRoute(): PkCalibrationRoute {
+        val stableId = readString()
+        return checkNotNull(PkCalibrationRoute.fromStableId(stableId)) {
+            "Unknown calibration route: $stableId"
+        }
+    }
+
+    // Every field of the event the simulator is handed, with its time as
+    // absolute epoch millis.
+    private fun DataOutputStream.writePkDoseEvents(events: List<PkDoseEvent>, anchorEpochMillis: Long) {
+        writeList(events) { event ->
+            writeString(event.id.toString())
+            writeNullableString(event.sourceGroupUuid?.toString())
+            writeString(event.hormone.name)
+            writeString(event.route.name)
+            writeLong(anchorEpochMillis + (event.timeH * 3_600_000.0).roundToLong())
+            writeDouble(event.doseMg)
+            writeString(event.compound.name)
+            writeNullableDouble(event.releaseRateMcgPerDay)
+            writeNullableDouble(event.areaCm2)
+            writeNullableDouble(event.sublingualTheta)
+            writeBoolean(event.isPlanned)
         }
     }
 
@@ -1131,6 +1379,10 @@ private const val TAG = "HomeSnapshotStore"
 // v22 appends the cached Home hero anchor tracked date.
 // v23-v26 append the calibration route log-scales, predictive band and hero summary.
 private const val SNAPSHOT_CODEC_VERSION = 27
+// The Home E2 estimate record's own version, separate from the snapshot's.
+private const val HOME_E2_ESTIMATE_CODEC_VERSION = 1
+private const val FIT_OUTCOME_SOLVED = 0
+private const val FIT_OUTCOME_FAILED = 1
 private const val POLICY_DISCRIMINATOR_INTERVAL = 0
 private const val POLICY_DISCRIMINATOR_BUDGET = 1
 private const val PATCH_SPECIFICATION_TOTAL_MG = 0

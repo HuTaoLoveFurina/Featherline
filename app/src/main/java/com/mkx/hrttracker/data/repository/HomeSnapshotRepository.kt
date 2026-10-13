@@ -2,21 +2,13 @@ package com.mkx.hrttracker.data.repository
 
 import com.mkx.hrttracker.model.bloodtest.BloodAnalyteKey
 import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
-import com.mkx.hrttracker.model.pk.PkCalibrationBandState
 import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationEvaluation
 import com.mkx.hrttracker.model.pk.PkCalibrationInput
-import com.mkx.hrttracker.model.pk.PkCalibrationRenderState
-import com.mkx.hrttracker.model.pk.PkCalibrationRoute
-import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
-import com.mkx.hrttracker.model.pk.PkChartDomain
-import com.mkx.hrttracker.model.pk.buildEstradiolPkDoseEvents
 import com.mkx.hrttracker.model.pk.PkCalibrationLab
-import com.mkx.hrttracker.model.pk.PkPersonalParams
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.roundToLong
 import com.mkx.hrttracker.data.local.DatabaseHolder
 import com.mkx.hrttracker.di.AppScope
 import com.mkx.hrttracker.di.DefaultDispatcher
@@ -26,9 +18,7 @@ import com.mkx.hrttracker.model.medication.MedicationLogEntry
 import com.mkx.hrttracker.model.medication.Medicine
 import com.mkx.hrttracker.model.personalization.UserProfile
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
-import com.mkx.hrttracker.model.pk.PkMedicationSimulation
 import com.mkx.hrttracker.model.pk.PkProjectionResult
-import com.mkx.hrttracker.model.pk.buildEstradiolPkSimulationEntries
 import com.mkx.hrttracker.model.pk.projectionFutureDays
 import com.mkx.hrttracker.startup.StartupTiming
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
@@ -55,7 +45,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -343,7 +332,6 @@ class HomeSnapshotRepository @Inject constructor(
             }.getOrNull() ?: return null
 
             PkProjectionResult(
-                generatedAt = java.time.Instant.ofEpochMilli(projectionRecord.generatedAtEpochMillis),
                 windowStart = java.time.Instant.ofEpochMilli(projectionRecord.windowStartEpochMillis),
                 windowEnd = java.time.Instant.ofEpochMilli(projectionRecord.windowEndEpochMillis),
                 concentrationUnit = unit,
@@ -871,7 +859,6 @@ class HomeSnapshotRepository @Inject constructor(
             entries = inputs.calibrationEntries,
             weightKg = inputs.profile.weightKg,
             metadata = inputs.calibrationMetadata,
-            fallbackOriginEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
         )
         diagnosticsLogger.info(
             TAG,
@@ -911,145 +898,57 @@ class HomeSnapshotRepository @Inject constructor(
             "home_snapshot_phase calibration_solved ms=${phaseMillis()} " +
                     "state=${calibration?.result?.globalState} promoted=${calibration?.result?.promotedRoutes}"
         )
-        val personalParams = calibration?.result?.displayParams ?: PkPersonalParams.population()
-        val horizon = now.toLocalDate().plusDays(option.projectionFutureDays()).atStartOfDay()
-        val simulationEntries = buildEstradiolPkSimulationEntries(
-            realEntries = inputs.pkEntries,
-            activeGroups = inputs.activeGroups,
-            now = now,
-            horizon = horizon,
-            zoneId = zoneId,
+        val e2Inputs = E2Inputs(
+            estradiolEntries = inputs.pkEntries,
+            plannedSources = inputs.activeGroups,
+            weightKg = inputs.profile.weightKg,
+            option = option,
+            fit = E2FitRecord(
+                fitId = E2Derivation.fitId(calibrationInput),
+                epoch = 0,
+                outcome = calibration
+                    ?.let { evaluation -> FitOutcome.Solved(evaluation.result, calibrationInput.originEpochMillis) }
+                    ?: FitOutcome.Failed,
+            ),
         )
-        // Home chart includes planned future doses; the widget shows the current
-        // body state from already-logged doses only, so its projection must
-        // exclude `plannedEntries`. Otherwise a planned dose 30 min from now
-        // would inflate the widget's "current" reading.
-        val (projection, widgetProjection) = coroutineScope {
+        val (home, widgetProjection) = coroutineScope {
             val homeAsync = async(defaultDispatcher) {
-                PkMedicationSimulation.simulateMainEstradiolProjection(
-                    entries = simulationEntries.real,
-                    plannedEntries = simulationEntries.planned,
-                    bodyWeightKg = inputs.profile.weightKg,
-                    generatedAt = now,
+                E2Derivation.deriveHomeEstimate(
+                    inputs = e2Inputs,
+                    now = now,
                     zoneId = zoneId,
-                    option = option,
-                    personalParams = personalParams,
+                    onBandFailure = { throwable ->
+                        diagnosticsLogger.warning(
+                            TAG,
+                            "home_snapshot_calibration_render_failed generation=$refreshGeneration",
+                            throwable,
+                        )
+                    },
                 )
             }
             val widgetAsync = async(defaultDispatcher) {
-                PkMedicationSimulation.simulateMainEstradiolProjection(
-                    entries = simulationEntries.real,
-                    plannedEntries = emptyList(),
-                    bodyWeightKg = inputs.profile.weightKg,
-                    generatedAt = now,
-                    zoneId = zoneId,
-                    option = option,
-                    personalParams = personalParams,
-                )
+                E2Derivation.deriveWidgetEstimate(e2Inputs, now, zoneId)
             }
             homeAsync.await() to widgetAsync.await()
         }
+        val projection = home.projection
+        val planned = E2Derivation.plannedEntries(e2Inputs, now, zoneId)
         diagnosticsLogger.info(
             TAG,
-            "home_snapshot_phase projections_simulated ms=${phaseMillis()} " +
-                    "real=${simulationEntries.real.size} planned=${simulationEntries.planned.size} " +
-                    "samples=${projection.timeH.size}"
+            "home_snapshot_phase estimates_derived ms=${phaseMillis()} " +
+                    "real=${inputs.pkEntries.size} planned=${planned.size} " +
+                    "samples=${projection.timeH.size} bandKnots=${home.bandKnots.size} " +
+                    "calibration=${home.calibration}"
         )
-        // The band follows the same projected curve as the chart: the same
-        // logged (lookback-limited) plus planned doses, over the projection
-        // window. The fit itself used the full dose history.
-        val homeRender = if (calibration == null) {
-            null
-        } else {
-            runCatching {
-                withContext(defaultDispatcher) {
-                    val bandEvents = buildEstradiolPkDoseEvents(
-                        anchor = Instant.ofEpochMilli(calibrationInput.originEpochMillis),
-                        realEntries = simulationEntries.real,
-                        plannedEntries = simulationEntries.planned,
-                    )
-                    // Sample the band exactly where the curve is sampled (dense
-                    // around doses), so its edges follow the peaks instead of
-                    // cutting chords across them.
-                    val windowStartMillis = projection.windowStart.toEpochMilli()
-                    val windowEndMillis = projection.windowEnd.toEpochMilli()
-                    PkChartDomain.create(
-                        rangeStartEpochMillis = windowStartMillis,
-                        rangeEndEpochMillis = windowEndMillis,
-                        samplingIntervalMillis = BAND_SAMPLING_INTERVAL_MILLIS,
-                        protectedKnotEpochMillis = projection.timeH
-                            .map { hours -> windowStartMillis + (hours * 3_600_000.0).roundToLong() }
-                            .filter { millis -> millis in windowStartMillis..windowEndMillis },
-                    )?.let { domain ->
-                        calibration.renderFor(
-                            domain = domain,
-                            doseEvents = bandEvents,
-                            statusRange = visibleChartRange,
-                        )
-                    }
-                }
-            }.onFailure { throwable ->
-                if (throwable is CancellationException) throw throwable
-                diagnosticsLogger.warning(
-                    TAG,
-                    "home_snapshot_calibration_render_failed generation=$refreshGeneration",
-                    throwable,
-                )
-            }.getOrNull()
-        }
-        diagnosticsLogger.info(
-            TAG,
-            "home_snapshot_phase band_rendered ms=${phaseMillis()} " +
-                    "render=${homeRender?.renderState} band=${homeRender?.bandState}"
-        )
-        val bandKnots = homeRender
-            ?.takeIf { render -> render.bandState == PkCalibrationBandState.READY }
-            ?.bandKnots
-            ?.map { knot ->
-                HomePkBandKnotRecord(
-                    epochMillis = knot.epochMillis,
-                    p025Pgml = knot.p025Pgml,
-                    p158655254Pgml = knot.p158655254Pgml,
-                    p50Pgml = knot.p50Pgml,
-                    p841344746Pgml = knot.p841344746Pgml,
-                    p975Pgml = knot.p975Pgml,
-                    segment = knot.segment,
-                )
-            }
-            .orEmpty()
-        // Hero/status summary, so Home never waits for the live evaluation.
-        val calibrationRecord = calibration?.let { evaluation ->
-            // The render narrows the supported routes to those shaping the
-            // estimate somewhere in the chart range. When it failed (null) the
-            // curve still carries displayParams, so name the supported routes
-            // rather than call a personalized curve "population".
-            val effective = homeRender?.effectivePromotedRoutes
-                ?: evaluation.result.supportedPromotedRoutes
-            val provisional = evaluation.result.routeResults
-                .filter { row ->
-                    row.displayState == PkRouteCalibrationDisplayState.LAB_ADJUSTED_PROVISIONAL
-                }
-                .map { row -> row.route }
-            HomePkCalibrationRecord(
-                adjusted = effective.isNotEmpty(),
-                limitedConfidence = effective.any(provisional::contains),
-                renderUnavailable = evaluation.isReady &&
-                        homeRender?.renderState == PkCalibrationRenderState.NUMERIC_UNAVAILABLE,
-                // Any adjusted curve without a READY band gets the note: a
-                // numeric failure, a thrown render, or an unbuildable domain.
-                bandUnavailable = effective.isNotEmpty() &&
-                        homeRender?.bandState != PkCalibrationBandState.READY,
-                effectiveRoutes = effective.map(PkCalibrationRoute::stableId),
-            )
-        }
         // Expire at the soonest planned dose after generation time — the
         // moment a slot transitions from "future" to "should be logged by now"
         // is exactly when a cached projection starts overstating the curve.
         // Fall back to the projection's window end when there are no future
         // planned slots (nothing to go stale).
-        val nextPlannedAt = simulationEntries.planned.asSequence()
+        val generatedAt = now.atZone(zoneId).toInstant()
+        val nextPlannedAt = planned.asSequence()
             .map { entry -> entry.appliedAt }
-            .filter { instant -> instant.isAfter(projection.generatedAt) }
+            .filter { instant -> instant.isAfter(generatedAt) }
             .minOrNull()
         val expiresAtInstant = nextPlannedAt ?: projection.windowEnd
         diagnosticsLogger.info(
@@ -1058,46 +957,19 @@ class HomeSnapshotRepository @Inject constructor(
                     "windowStart=${projection.windowStart} windowEnd=${projection.windowEnd} " +
                     "expiresAt=$expiresAtInstant"
         )
-        val pkProjectionRecord = HomePkProjectionRecord(
-            generatedAtEpochMillis = projection.generatedAt.toEpochMilli(),
-            windowStartEpochMillis = projection.windowStart.toEpochMilli(),
-            windowEndEpochMillis = projection.windowEnd.toEpochMilli(),
-            pkProjectionExpiresAtEpochMillis = expiresAtInstant.toEpochMilli(),
-            concentrationUnit = projection.concentrationUnit.name,
-            timeH = projection.timeH,
-            concentrations = projection.concentrations,
-            doseMarkers = projection.doseMarkers.map { marker ->
-                HomePkProjectionDoseMarkerRecord(
-                    timeH = marker.timeH,
-                    concentration = marker.concentration,
-                    isPlanned = marker.isPlanned,
-                )
-            },
+        val pkProjectionRecord = projection.toRecord(
+            generatedAt = generatedAt,
+            expiresAt = expiresAtInstant,
             latestEstradiolEntry = inputs.latestEstradiolEntry,
-            chartWindowHours = option.chartWindowHours.toInt(),
-            densePolicy = option.densePolicy.toRecord(),
-            includesPostDoseOffsets = option.includesPostDoseOffsets,
+            option = option,
         )
         // No planned doses → nothing to "go stale" mid-window; expire at windowEnd.
-        val widgetPkProjectionRecord = HomePkProjectionRecord(
-            generatedAtEpochMillis = widgetProjection.generatedAt.toEpochMilli(),
-            windowStartEpochMillis = widgetProjection.windowStart.toEpochMilli(),
-            windowEndEpochMillis = widgetProjection.windowEnd.toEpochMilli(),
-            pkProjectionExpiresAtEpochMillis = widgetProjection.windowEnd.toEpochMilli(),
-            concentrationUnit = widgetProjection.concentrationUnit.name,
-            timeH = widgetProjection.timeH,
-            concentrations = widgetProjection.concentrations,
-            doseMarkers = widgetProjection.doseMarkers.map { marker ->
-                HomePkProjectionDoseMarkerRecord(
-                    timeH = marker.timeH,
-                    concentration = marker.concentration,
-                    isPlanned = marker.isPlanned,
-                )
-            },
+        val widgetPkProjectionRecord = widgetProjection.toRecord(
+            generatedAt = generatedAt,
+            expiresAt = widgetProjection.windowEnd,
             latestEstradiolEntry = inputs.latestEstradiolEntry,
-            chartWindowHours = option.chartWindowHours.toInt(),
-            densePolicy = option.densePolicy.toRecord(),
-            includesPostDoseOffsets = option.includesPostDoseOffsets,
+            // The widget projection is seven days whatever Home's option is.
+            option = HomeE2ChartWindowOption.SEVEN_DAYS,
         )
         val snapshotRecord = HomeSnapshotRecord(
             schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
@@ -1116,10 +988,10 @@ class HomeSnapshotRepository @Inject constructor(
             stockFulfillmentEntries = inputs.stockFulfillmentEntries,
             pkEntries = inputs.pkEntries,
             homeAnchor = inputs.homeAnchor,
-            pkRouteLogScale = personalParams.routeLogScale
+            pkRouteLogScale = E2Derivation.displayParams(e2Inputs.fit).routeLogScale
                 .mapKeys { (route, _) -> route.stableId },
-            pkBandKnots = bandKnots,
-            pkCalibration = calibrationRecord,
+            pkBandKnots = home.bandKnots,
+            pkCalibration = home.calibration,
         )
 
         withContext(Dispatchers.IO) {
@@ -1136,7 +1008,7 @@ class HomeSnapshotRepository @Inject constructor(
                     diagnosticsLogger.info(
                         TAG,
                         "home_snapshot_write_start ${snapshotRecord.diagnosticSummary()} " +
-                                "bandKnots=${bandKnots.size} pkEntries=${inputs.pkEntries.size}"
+                                "bandKnots=${home.bandKnots.size} pkEntries=${inputs.pkEntries.size}"
                     )
                     homeSnapshotStore.writeSnapshot(snapshotRecord)
                     lastWriteState.value = HomeSnapshotWrite(
@@ -1245,42 +1117,10 @@ class HomeSnapshotRepository @Inject constructor(
                     generatedAtEpochMillis = generatedAt.toEpochMilli(),
                     windowStartEpochMillis = windowStart.toEpochMilli(),
                     windowEndEpochMillis = windowEnd.toEpochMilli(),
+                    // The PK lookback E2Derivation reads before the window.
                     inputStartEpochMillis = windowStart
-                        .minus(Duration.ofDays(HOME_PK_PROJECTION_LOOKBACK_DAYS))
+                        .minus(PK_CALIBRATION_DOSE_LOOKBACK)
                         .toEpochMilli(),
-                )
-            }
-        }
-    }
-
-    // Visible chart window the projection must cover for the selected option.
-    // Used by validation; intentionally narrower than HomePkProjectionWindow so
-    // a snapshot whose end is past the chart end (but inside the cache buffer)
-    // is still usable.
-    private data class HomePkChartWindow(
-        val windowStartEpochMillis: Long,
-        val windowEndEpochMillis: Long,
-    ) {
-        val range: LongRange get() = windowStartEpochMillis..windowEndEpochMillis
-
-        companion object {
-            fun forNow(
-                now: LocalDateTime,
-                zoneId: ZoneId,
-                option: HomeE2ChartWindowOption,
-            ): HomePkChartWindow {
-                val windowStart = now
-                    .toLocalDate()
-                    .atStartOfDay()
-                    .minusDays(option.pastDays)
-                    .atZone(zoneId)
-                    .toInstant()
-                val windowEnd = windowStart.plus(
-                    Duration.ofHours(option.chartWindowHours)
-                )
-                return HomePkChartWindow(
-                    windowStartEpochMillis = windowStart.toEpochMilli(),
-                    windowEndEpochMillis = windowEnd.toEpochMilli(),
                 )
             }
         }
@@ -1371,6 +1211,33 @@ class HomeSnapshotRepository @Inject constructor(
     }
 }
 
+/** A derived projection as the snapshot stores it: stamped with the build's time, its expiry and option. */
+private fun PkProjectionResult.toRecord(
+    generatedAt: Instant,
+    expiresAt: Instant,
+    latestEstradiolEntry: MedicationLogEntry?,
+    option: HomeE2ChartWindowOption,
+) = HomePkProjectionRecord(
+    generatedAtEpochMillis = generatedAt.toEpochMilli(),
+    windowStartEpochMillis = windowStart.toEpochMilli(),
+    windowEndEpochMillis = windowEnd.toEpochMilli(),
+    pkProjectionExpiresAtEpochMillis = expiresAt.toEpochMilli(),
+    concentrationUnit = concentrationUnit.name,
+    timeH = timeH,
+    concentrations = concentrations,
+    doseMarkers = doseMarkers.map { marker ->
+        HomePkProjectionDoseMarkerRecord(
+            timeH = marker.timeH,
+            concentration = marker.concentration,
+            isPlanned = marker.isPlanned,
+        )
+    },
+    latestEstradiolEntry = latestEstradiolEntry,
+    chartWindowHours = option.chartWindowHours.toInt(),
+    densePolicy = option.densePolicy.toRecord(),
+    includesPostDoseOffsets = option.includesPostDoseOffsets,
+)
+
 private fun HomeSnapshotRecord.diagnosticSummary(): String {
     return "schema=$schemaVersion " +
             "generation=$generation " +
@@ -1416,13 +1283,7 @@ class HomeCalibrationBuild(
 // projections and calibration on the first open after the update.
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 9
 
-// Cache-input lookback past the visible chart window. 180 d is enough for
-// steady-state PK history regardless of option; the forward span is owned
-// by HomeE2ChartWindowOption.projectionFutureDays() and dropped its own
-// constant.
 private const val TAG = "HomeSnapshotRepository"
-private const val HOME_PK_PROJECTION_LOOKBACK_DAYS = 180L
-private const val BAND_SAMPLING_INTERVAL_MILLIS = 6L * 60L * 60L * 1_000L
 private const val HOME_SCHEDULE_LOOKAHEAD_DAYS = 90L
 private const val HOME_SNAPSHOT_VALIDITY_DAYS = 10L
 private const val HOME_SNAPSHOT_PAST_BUFFER_DAYS = 1L

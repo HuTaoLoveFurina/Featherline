@@ -472,6 +472,68 @@ class PkCalibrationRendererTest {
     }
 
     @Test
+    fun fitLevelRender_matchesTheEvaluationRender() {
+        // A stored fit renders without its evidence pool: the same result,
+        // origin, weight and config give the evaluation's render exactly,
+        // whether the events are the fitted history (whose forward model the
+        // evaluation reuses) or Home's own.
+        val renderDomain = domain(startHours = 1, hours = 24, intervalHours = 6)
+        val statusRanges = listOf(
+            renderDomain.rangeStartEpochMillis..renderDomain.rangeEndEpochMillis,
+            OriginMillis + 2 * HourMillis..OriginMillis + 9 * HourMillis,
+        )
+        val evaluations = listOf(
+            evaluation(events = listOf(event(PkRoute.ORAL, 0.0, 2.0))),
+            evaluation(
+                events = listOf(event(PkRoute.INJECTION, 0.0, 2.0, PkCompound.EV), event(PkRoute.ORAL, 0.0, 2.0)),
+                promotedQByRoute = mapOf(PkCalibrationRoute.INJECTION to ln(4.0), PkCalibrationRoute.ORAL to ln(1.2)),
+            ),
+            evaluation(
+                events = allRouteEvents(),
+                config = config(rLog = 0.05),
+                promotedQByRoute = PkCalibrationRoute.entries.associateWith { ln(1.1) },
+            ),
+            evaluation(
+                events = listOf(event(PkRoute.INJECTION, 0.0, Double.MAX_VALUE, PkCompound.EV)),
+                promotedQByRoute = mapOf(PkCalibrationRoute.INJECTION to ln(1.1)),
+            ),
+            evaluation(
+                events = listOf(event(PkRoute.ORAL, 0.0, 5.9e306)),
+                promotedQByRoute = mapOf(PkCalibrationRoute.ORAL to ln(1.1)),
+            ),
+        )
+        for (evaluation in evaluations) {
+            val input = requireReady(evaluation)
+            val homeEvents = input.doseEvents + event(PkRoute.ORAL, 12.0, 1.0)
+            for (events in listOf(input.doseEvents, homeEvents)) {
+                for (statusRange in statusRanges) {
+                    assertEquals(
+                        PkCalibrationRenderer.render(evaluation, renderDomain, events, statusRange),
+                        PkCalibrationRenderer.render(
+                            result = evaluation.result,
+                            originEpochMillis = input.originEpochMillis,
+                            weightKg = input.weightKg,
+                            config = input.config,
+                            domain = renderDomain,
+                            doseEvents = events,
+                            statusRange = statusRange,
+                        ),
+                    )
+                }
+            }
+        }
+        // A non-READY result renders nothing, like a non-READY evaluation.
+        for (state in PkCalibrationGlobalState.entries - PkCalibrationGlobalState.READY) {
+            assertNull(
+                PkCalibrationRenderer.render(
+                    PkCalibrationResult(state), OriginMillis, WeightKg, Config, renderDomain,
+                    doseEvents = listOf(event(PkRoute.ORAL, 0.0, 2.0)),
+                )
+            )
+        }
+    }
+
+    @Test
     fun centralCurve_isDeterministicUnderEventReorder() {
         val events = allRouteEvents()
         val promoted = mapOf(PkCalibrationRoute.ORAL to ln(1.1))

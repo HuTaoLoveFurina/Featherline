@@ -34,7 +34,6 @@ class PkCalibrationInputsTest {
             entries = listOf(convertible, custom),
             weightKg = 60.0,
             metadata = emptyList(),
-            fallbackOriginEpochMillis = 0L,
         )
 
         assertEquals(listOf(convertible.uuid), input.doseEvents.map { it.id })
@@ -60,7 +59,6 @@ class PkCalibrationInputsTest {
             entries = listOf(tooOld, inWindow),
             weightKg = 60.0,
             metadata = emptyList(),
-            fallbackOriginEpochMillis = 0L,
         )
 
         assertEquals(listOf(inWindow.uuid), input.doseEvents.map { it.id })
@@ -73,7 +71,6 @@ class PkCalibrationInputsTest {
             entries = listOf(tooOld),
             weightKg = 60.0,
             metadata = emptyList(),
-            fallbackOriginEpochMillis = 0L,
         )
         assertEquals(listOf(tooOld.uuid), onlyOld.doseEvents.map { it.id })
         assertEquals(tooOld.appliedAt.toEpochMilli(), onlyOld.originEpochMillis)

@@ -23,7 +23,19 @@ import com.mkx.hrttracker.model.medication.MedicineStock
 import com.mkx.hrttracker.model.medication.testCustomMedicine
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
+import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
+import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
+import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
+import com.mkx.hrttracker.model.pk.PkCalibrationPromotedCovariance
+import com.mkx.hrttracker.model.pk.PkCalibrationReason
+import com.mkx.hrttracker.model.pk.PkCalibrationResult
+import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkConcentrationUnit
+import com.mkx.hrttracker.model.pk.PkDoseMarker
+import com.mkx.hrttracker.model.pk.PkProjectionResult
+import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
+import com.mkx.hrttracker.model.pk.PkRouteCalibrationResult
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -767,6 +779,127 @@ class HomeSnapshotCodecTest {
 
         assertEquals(record, decoded)
     }
+
+    @Test
+    fun fit_roundTripsEveryCalibrationResultField_andFailed() {
+        val solved = E2FitRecord(
+            fitId = Digest("ab".repeat(32)),
+            epoch = 3,
+            outcome = FitOutcome.Solved(calibrationResult(), originEpochMillis = 1_700_000_000_000L),
+        )
+        val notReady = solved.copy(
+            outcome = FitOutcome.Solved(PkCalibrationResult(PkCalibrationGlobalState.NO_USABLE_LABS), 0L),
+        )
+        for (fit in listOf(solved, notReady, solved.copy(outcome = FitOutcome.Failed))) {
+            assertEquals(fit, HomeSnapshotCodec.decodeFit(HomeSnapshotCodec.encodeFit(fit)))
+        }
+    }
+
+    @Test
+    fun fit_encodesEqualResultsIdentically_whateverTheirSetAndMapOrder() {
+        // fitKey digests these bytes: iteration order must not reach it.
+        val result = calibrationResult()
+        val reordered = result.copy(
+            routeResults = result.routeResults.map { row ->
+                row.copy(
+                    reasons = row.reasons.reversed().toSet(),
+                    unreviewedOutlierLabIds = row.unreviewedOutlierLabIds.reversed().toSet(),
+                )
+            },
+            ignoredLabs = result.ignoredLabs.entries.reversed().associate { (id, reason) -> id to reason },
+        )
+        assertEquals(result, reordered)
+        fun bytes(result: PkCalibrationResult) =
+            HomeSnapshotCodec.encodeFit(E2FitRecord(Digest("00"), 0, FitOutcome.Solved(result, 0L)))
+        assertArrayEquals(bytes(result), bytes(reordered))
+    }
+
+    @Test
+    fun homeEstimate_roundTripsKeyProjectionBandAndStatus() {
+        val record = HomeE2EstimateRecord(
+            key = HomeEstimateKey(
+                engine = PK_ENGINE_VERSION,
+                fitKey = Digest("cd".repeat(32)),
+                weightKg = 61.5,
+                logged = Digest("01".repeat(32)),
+                planned = Digest("02".repeat(32)),
+                option = HomeE2ChartWindowOption.THIRTY_DAYS,
+                windowDate = LocalDate.of(2026, 5, 20),
+                zoneId = "Asia/Tokyo",
+            ),
+            estimate = HomeE2Estimate(
+                projection = PkProjectionResult(
+                    windowStart = Instant.ofEpochMilli(1_000L),
+                    windowEnd = Instant.ofEpochMilli(2_000L),
+                    concentrationUnit = PkConcentrationUnit.PG_PER_ML,
+                    timeH = listOf(0.0, 0.1, 0.2),
+                    concentrations = listOf(10.0, 12.5, 11.0),
+                    doseMarkers = listOf(
+                        PkDoseMarker(timeH = 0.1, concentration = 12.5),
+                        PkDoseMarker(timeH = 0.2, concentration = 11.0, isPlanned = true),
+                    ),
+                ),
+                bandKnots = listOf(
+                    HomePkBandKnotRecord(1_000L, 6.0, 8.0, 10.0, 12.5, 16.0, segment = 0),
+                    HomePkBandKnotRecord(2_000L, 5.0, 7.0, 9.0, 12.0, 15.0, segment = 1),
+                ),
+                calibration = HomePkCalibrationRecord(
+                    adjusted = true,
+                    limitedConfidence = false,
+                    renderUnavailable = false,
+                    bandUnavailable = true,
+                    effectiveRoutes = listOf("oral"),
+                ),
+            ),
+        )
+        val bare = record.copy(
+            key = record.key.copy(fitKey = null),
+            estimate = record.estimate.copy(bandKnots = emptyList(), calibration = null),
+        )
+        for (estimate in listOf(record, bare)) {
+            assertEquals(estimate, HomeSnapshotCodec.decodeHomeEstimate(HomeSnapshotCodec.encodeHomeEstimate(estimate)))
+        }
+        // Another codec version is not read as this one.
+        val otherVersion = HomeSnapshotCodec.encodeHomeEstimate(record).also { bytes -> bytes[3] = 2 }
+        assertThrows(IllegalArgumentException::class.java) { HomeSnapshotCodec.decodeHomeEstimate(otherVersion) }
+    }
+
+    private fun calibrationResult() = PkCalibrationResult(
+        globalState = PkCalibrationGlobalState.READY,
+        routeResults = PkCalibrationRoute.entries.map { route ->
+            when (route) {
+                PkCalibrationRoute.INJECTION -> PkRouteCalibrationResult(
+                    route = route,
+                    displayState = PkRouteCalibrationDisplayState.LAB_ADJUSTED_PROVISIONAL,
+                    reasons = setOf(PkCalibrationReason.UNCERTAIN, PkCalibrationReason.UNREVIEWED_OUTLIER),
+                    fittedBeta = 0.4,
+                    betaPosteriorSd = 0.25,
+                    supportingLabCount = 2,
+                    minStudentTWeight = 0.2,
+                    unreviewedOutlierLabIds = setOf(UUID(0L, 7L), UUID(0L, 3L)),
+                )
+
+                PkCalibrationRoute.ORAL -> PkRouteCalibrationResult(
+                    route = route,
+                    displayState = PkRouteCalibrationDisplayState.LAB_CALIBRATED,
+                    fittedBeta = -0.1,
+                    betaPosteriorSd = 0.05,
+                    supportingLabCount = 4,
+                    minStudentTWeight = 0.9,
+                )
+
+                else -> PkRouteCalibrationResult(route, PkRouteCalibrationDisplayState.POPULATION_NO_LAB_SIGNAL)
+            }
+        },
+        promotedBetaCovariance = PkCalibrationPromotedCovariance(
+            routes = listOf(PkCalibrationRoute.INJECTION, PkCalibrationRoute.ORAL),
+            values = listOf(listOf(0.0625, -0.001), listOf(-0.001, 0.0025)),
+        ),
+        ignoredLabs = mapOf(
+            UUID(0L, 9L) to PkCalibrationLabIgnoreReason.BELOW_INFORMATIVE_SIGNAL,
+            UUID(0L, 5L) to PkCalibrationLabIgnoreReason.NON_POSITIVE_VALUE,
+        ),
+    )
 
     @Test
     fun decode_normalizesLegacyEmptyOpenContainerStock() {

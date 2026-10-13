@@ -594,8 +594,17 @@ class HomeSnapshotRepositoryTest {
         mockkObject(PkCalibrationEngine, PkCalibrationRenderer)
         try {
             every { PkCalibrationEngine.evaluate(any()) } returns evaluation
+            // The band renders from the fit, as E2Derivation does.
             every {
-                PkCalibrationRenderer.render(any(), any(), any(), any())
+                PkCalibrationRenderer.render(
+                    result = any(),
+                    originEpochMillis = any(),
+                    weightKg = any(),
+                    config = any(),
+                    domain = any(),
+                    doseEvents = any(),
+                    statusRange = any(),
+                )
             } throws IllegalStateException("render")
             repository.runHomeDataMutation { }
             awaitRebuild(testScheduler) { writtenSnapshot.isCaptured }
@@ -1243,6 +1252,48 @@ class HomeSnapshotRepositoryTest {
             expectedProjectionWindowEnd,
             checkNotNull(writtenSnapshot.captured.pkProjection).windowEndEpochMillis,
         )
+    }
+
+    @Test
+    fun buildSnapshot_stampsBothProjectionsWithTheBuildTime_andTheWidgetsWithSevenDays() = runTest {
+        // Home's 30-day option no longer reaches the widget, and the derived
+        // projections carry no generation time: the records take the build's.
+        chartWindowOptionState.value = HomeE2ChartWindowOption.THIRTY_DAYS
+        val now = LocalDateTime.of(2026, 5, 6, 10, 15)
+        val zoneId = ZoneId.systemDefault()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val writtenSnapshot = slot<HomeSnapshotRecord>()
+        stubSlowEmptyRefreshInputs(buildDelaysMs = listOf(0L))
+        coEvery { homeSnapshotStore.writeSnapshot(capture(writtenSnapshot)) } returns Unit
+
+        HomeSnapshotRepository(
+            databaseHolder = databaseHolder,
+            homeSnapshotStore = homeSnapshotStore,
+            homeSnapshotGenerationStore = homeSnapshotGenerationStore,
+            settingsRepository = settingsRepository,
+            appScope = CoroutineScope(dispatcher),
+            defaultDispatcher = dispatcher,
+        ).refreshHomeSnapshotIfNeeded(now = now, force = true, zoneId = zoneId)
+
+        val nowMillis = now.atZone(zoneId).toInstant().toEpochMilli()
+        val home = checkNotNull(writtenSnapshot.captured.pkProjection)
+        val widget = checkNotNull(writtenSnapshot.captured.widgetPkProjection)
+        assertEquals(nowMillis, home.generatedAtEpochMillis)
+        assertEquals(720, home.chartWindowHours)
+        assertEquals(home.windowEndEpochMillis, home.pkProjectionExpiresAtEpochMillis)
+        assertEquals(nowMillis, widget.generatedAtEpochMillis)
+        assertEquals(168, widget.chartWindowHours)
+        assertEquals(HomeE2ChartWindowOption.SEVEN_DAYS.densePolicy.toRecord(), widget.densePolicy)
+        assertFalse(widget.includesPostDoseOffsets)
+        assertEquals(
+            now.toLocalDate().minusDays(3).atStartOfDay(zoneId).toInstant().toEpochMilli(),
+            widget.windowStartEpochMillis,
+        )
+        assertEquals(
+            now.toLocalDate().plusDays(14).atStartOfDay(zoneId).toInstant().toEpochMilli(),
+            widget.windowEndEpochMillis,
+        )
+        assertEquals(widget.windowEndEpochMillis, widget.pkProjectionExpiresAtEpochMillis)
     }
 
     @Test

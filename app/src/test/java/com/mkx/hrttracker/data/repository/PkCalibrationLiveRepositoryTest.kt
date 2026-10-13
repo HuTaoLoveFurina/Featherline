@@ -205,7 +205,6 @@ class PkCalibrationLiveRepositoryTest {
             entries = emptyList(),
             weightKg = null,
             metadata = emptyList(),
-            fallbackOriginEpochMillis = FixedNowMillis,
         )
         builds.value = HomeCalibrationBuild(
             generation = 2L,

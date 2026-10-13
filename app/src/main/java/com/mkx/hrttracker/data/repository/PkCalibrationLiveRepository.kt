@@ -148,7 +148,6 @@ class PkCalibrationLiveRepository @Inject constructor(
             entries = entries,
             weightKg = profile.weightKg,
             metadata = metadata,
-            fallbackOriginEpochMillis = clock.millis(),
         )
         val nowMillis = clock.millis()
         val domain = renderDomain(nowMillis) ?: return null

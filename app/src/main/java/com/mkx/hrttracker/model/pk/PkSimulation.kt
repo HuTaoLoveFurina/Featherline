@@ -11,6 +11,7 @@ import com.mkx.hrttracker.model.medication.MedicinePreparation
 import com.mkx.hrttracker.model.medication.MedicineSelection
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.UUID
@@ -164,7 +165,6 @@ data class PkTrendResult(
 }
 
 data class PkProjectionResult(
-    val generatedAt: Instant,
     val windowStart: Instant,
     val windowEnd: Instant,
     val concentrationUnit: PkConcentrationUnit,
@@ -307,6 +307,10 @@ object PkMedicationSimulation {
     private const val MainChartDenseSampleIntervalHours = 0.1
     /** App-wide fallback when Current Weight is unset; calibration uses it too. */
     const val DefaultBodyWeightKg = 70.0
+
+    /** Current Weight as the PK math reads it: unset or invalid is [DefaultBodyWeightKg]. */
+    internal fun resolvedBodyWeightKg(bodyWeightKg: Double?): Double =
+        bodyWeightKg?.takeIf { it.isFinite() && it > 0 } ?: DefaultBodyWeightKg
     private const val ChartXPrecisionScale = 10_000.0
 
     internal const val hoursPerDay = HoursPerDay
@@ -324,8 +328,6 @@ object PkMedicationSimulation {
         option: HomeE2ChartWindowOption = HomeE2ChartWindowOption.SEVEN_DAYS,
         personalParams: PkPersonalParams = PkPersonalParams.population(),
     ): PkTrendResult? {
-        val resolvedBodyWeightKg =
-            bodyWeightKg?.takeIf { it.isFinite() && it > 0 } ?: DefaultBodyWeightKg
         val nowInstant = now.atZone(zoneId).toInstant()
         val startInstant = now
             .toLocalDate()
@@ -353,7 +355,7 @@ object PkMedicationSimulation {
         val result = PkSimulationEngine(
             events = events,
             hormone = PkHormone.ESTRADIOL,
-            bodyWeightKg = resolvedBodyWeightKg,
+            bodyWeightKg = resolvedBodyWeightKg(bodyWeightKg),
             startTimeH = 0.0,
             endTimeH = windowEndHours,
             numberOfSteps = (option.chartWindowHours.toInt() + 1).coerceAtLeast(2),
@@ -387,39 +389,32 @@ object PkMedicationSimulation {
     }
 
     // Returned `windowStart` and `windowEnd` MUST equal
-    // `generatedAt.toLocalDate().atStartOfDay().minusDays(mainChartPastDays)` and
-    // `generatedAt.toLocalDate().plusDays(futureDays).atStartOfDay()` (in `zoneId`).
+    // `windowDate.atStartOfDay().minusDays(mainChartPastDays)` and
+    // `windowDate.plusDays(futureDays).atStartOfDay()` (in `zoneId`).
     // `HomeSnapshotRepository.snapshotUsabilityFailure` recomputes those bounds
     // independently and rejects snapshots whose stored window doesn't cover the
     // chart window — so changing this rounding silently invalidates every cache.
     fun simulateMainEstradiolProjection(
         entries: List<MedicationLogEntry>,
         bodyWeightKg: Double?,
-        generatedAt: LocalDateTime,
+        windowDate: LocalDate,
         zoneId: ZoneId = ZoneId.systemDefault(),
         plannedEntries: List<MedicationLogEntry> = emptyList(),
         option: HomeE2ChartWindowOption = HomeE2ChartWindowOption.SEVEN_DAYS,
         futureDays: Long = option.projectionFutureDays(),
         personalParams: PkPersonalParams = PkPersonalParams.population(),
     ): PkProjectionResult {
-        val resolvedBodyWeightKg =
-            bodyWeightKg?.takeIf { it.isFinite() && it > 0 } ?: DefaultBodyWeightKg
-        val generatedAtInstant = generatedAt.atZone(zoneId).toInstant()
-        val windowStart = generatedAt
-            .toLocalDate()
+        val windowStart = windowDate
             .atStartOfDay()
             .minusDays(option.pastDays)
             .atZone(zoneId)
             .toInstant()
-        val windowEnd = generatedAt
-            .toLocalDate()
+        val windowEnd = windowDate
             .plusDays(futureDays)
             .atStartOfDay()
             .atZone(zoneId)
             .toInstant()
         val windowHours = Duration.between(windowStart, windowEnd)
-            .toMillis() / 3_600_000.0
-        val generatedAtTimeH = Duration.between(windowStart, generatedAtInstant)
             .toMillis() / 3_600_000.0
         val events = buildEstradiolPkDoseEvents(
             anchor = windowStart,
@@ -429,13 +424,12 @@ object PkMedicationSimulation {
         val sampleTimeH = mainProjectionSampleTimeH(
             events = events,
             windowEndHours = windowHours,
-            generatedAtTimeH = generatedAtTimeH,
             option = option,
         )
         val result = PkSimulationEngine(
             events = events,
             hormone = PkHormone.ESTRADIOL,
-            bodyWeightKg = resolvedBodyWeightKg,
+            bodyWeightKg = resolvedBodyWeightKg(bodyWeightKg),
             startTimeH = 0.0,
             endTimeH = windowHours,
             numberOfSteps = ceil(windowHours).toInt().coerceAtLeast(1) + 1,
@@ -448,7 +442,6 @@ object PkMedicationSimulation {
         )
 
         return PkProjectionResult(
-            generatedAt = generatedAtInstant,
             windowStart = windowStart,
             windowEnd = windowEnd,
             concentrationUnit = result.metadata.concentrationUnit,
@@ -533,22 +526,19 @@ object PkMedicationSimulation {
             .sorted()
     }
 
+    // No exact samples at the current time and a day before, unlike the trend:
+    // the grid depends only on the window, the events and the option. A
+    // reading between samples interpolates (toMainEstradiolTrend).
     private fun mainProjectionSampleTimeH(
         events: List<PkDoseEvent>,
         windowEndHours: Double,
-        generatedAtTimeH: Double,
         option: HomeE2ChartWindowOption,
     ): List<Double> {
-        val previousDayTimeH = generatedAtTimeH - HoursPerDay
         val denseSampleTimeH = mainChartDenseSampleTimeH(
             startTimeH = 0.0,
             endTimeH = windowEndHours,
             policy = option.densePolicy,
         )
-        val exactSampleTimeH = listOf(
-            generatedAtTimeH.toChartXHour(),
-            previousDayTimeH.toChartXHour(),
-        ).filter { timeH -> timeH.isFinite() && timeH in 0.0..windowEndHours }
         val loggedEventTimeH = events
             .asSequence()
             .map { event -> event.timeH.toChartXHour() }
@@ -561,7 +551,7 @@ object PkMedicationSimulation {
             option = option,
         )
 
-        return (denseSampleTimeH + exactSampleTimeH + loggedEventTimeH + offsetSampleTimeH)
+        return (denseSampleTimeH + loggedEventTimeH + offsetSampleTimeH)
             .map { timeH -> timeH.toChartXHour() }
             .distinct()
             .sorted()

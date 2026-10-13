@@ -422,7 +422,7 @@ class PkSimulationTest {
         val projection = PkMedicationSimulation.simulateMainEstradiolProjection(
             entries = entries,
             bodyWeightKg = 62.0,
-            generatedAt = generatedAt,
+            windowDate = generatedAt.toLocalDate(),
             zoneId = zoneId,
             futureDays = 14,
         )
@@ -471,7 +471,7 @@ class PkSimulationTest {
         val projection = PkMedicationSimulation.simulateMainEstradiolProjection(
             entries = listOf(doseAtWindowEnd),
             bodyWeightKg = 70.0,
-            generatedAt = generatedAt,
+            windowDate = generatedAt.toLocalDate(),
             zoneId = zoneId,
             futureDays = 4,
         )
@@ -771,7 +771,7 @@ class PkSimulationTest {
             val projection = PkMedicationSimulation.simulateMainEstradiolProjection(
                 entries = emptyList(),
                 bodyWeightKg = 70.0,
-                generatedAt = generatedAt,
+                windowDate = generatedAt.toLocalDate(),
                 zoneId = zoneId,
                 option = option,
             )
@@ -800,27 +800,23 @@ class PkSimulationTest {
 
     @Test
     fun simulateMainEstradiolProjection_thirtyDays_usesBudgetSampler() {
-        // 30-day projection spans 40 d (20 past + 10 future + 10 buffer). The
-        // budget sampler emits segmentCount + 1 = 2241 dense samples; the
-        // returned timeH has more after exact anchors (windowStart, generatedAt,
-        // previousDay) are unioned in, but should not balloon to interval-style
-        // counts.
+        // 30-day projection spans 40 d (16 past + 14 future + 10 buffer). The
+        // budget sampler emits segmentCount + 1 = 2241 dense samples; dose
+        // times and their post-dose offsets are unioned in, but the count
+        // should not balloon to interval-style counts.
         val zoneId = ZoneId.of("Asia/Tokyo")
         val generatedAt = LocalDateTime.of(2026, 5, 8, 14, 27)
         val projection = PkMedicationSimulation.simulateMainEstradiolProjection(
             entries = emptyList(),
             bodyWeightKg = 70.0,
-            generatedAt = generatedAt,
+            windowDate = generatedAt.toLocalDate(),
             zoneId = zoneId,
             option = HomeE2ChartWindowOption.THIRTY_DAYS,
         )
 
-        // 2241 budget samples plus a handful of exact anchors; cap well below
-        // the interval-grid count of (40*24/0.1)+1 = 9601.
-        assertTrue(
-            "THIRTY_DAYS dense samples grew beyond budget: ${projection.timeH.size}",
-            projection.timeH.size in 2241..2260,
-        )
+        // No doses and no sample at the generation time: exactly the budget,
+        // well below the interval-grid count of (40*24/0.1)+1 = 9601.
+        assertEquals(2241, projection.timeH.size)
     }
 
     @Test

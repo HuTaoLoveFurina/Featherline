@@ -748,7 +748,6 @@ class HomeRepositoryTest {
             pkCalibration = calibrationRecord,
         )
         val decodedProjection = PkProjectionResult(
-            generatedAt = now.atZone(zoneId).toInstant(),
             windowStart = Instant.EPOCH,
             windowEnd = Instant.ofEpochMilli(Long.MAX_VALUE),
             concentrationUnit = PkConcentrationUnit.PG_PER_ML,

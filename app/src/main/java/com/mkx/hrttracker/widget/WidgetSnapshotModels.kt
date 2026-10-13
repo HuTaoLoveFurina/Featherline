@@ -55,7 +55,6 @@ data class WidgetPkProjectionRecord(
         if (nowEpochMillis >= pkProjectionExpiresAtEpochMillis) return null
         return runCatching {
             PkProjectionResult(
-                generatedAt = Instant.ofEpochMilli(generatedAtEpochMillis),
                 windowStart = Instant.ofEpochMilli(windowStartEpochMillis),
                 windowEnd = Instant.ofEpochMilli(windowEndEpochMillis),
                 concentrationUnit = PkConcentrationUnit.valueOf(concentrationUnit),

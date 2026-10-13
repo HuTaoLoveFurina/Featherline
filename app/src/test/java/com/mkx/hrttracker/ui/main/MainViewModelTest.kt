@@ -1773,7 +1773,6 @@ class MainViewModelTest {
             put(currentTimeH, currentConcentration)
         }.toSortedMap()
         return PkProjectionResult(
-            generatedAt = now.atZone(zoneId).toInstant(),
             windowStart = windowStart,
             windowEnd = windowEnd,
             concentrationUnit = concentrationUnit,
@@ -1797,7 +1796,6 @@ class MainViewModelTest {
         )
         val windowHours = PkMedicationSimulation.mainChartWindowHours.toDouble()
         return PkProjectionResult(
-            generatedAt = date.atTime(9, 0).atZone(zoneId).toInstant(),
             windowStart = windowStart,
             windowEnd = windowEnd,
             concentrationUnit = PkConcentrationUnit.PG_PER_ML,

@@ -15,8 +15,8 @@ import java.time.Instant
 
 /**
  * Doses older than this before the earliest lab cannot shape any lab, so the
- * fit (and the dose reads feeding it) start here. Same horizon as the Home
- * projection's input lookback: 180 d covers steady state for every route.
+ * fit (and the dose reads feeding it) start here. Every estimate reads the
+ * same horizon before its window: 180 d covers steady state for every route.
  */
 val PK_CALIBRATION_DOSE_LOOKBACK: Duration = Duration.ofDays(180L)
 
@@ -52,8 +52,6 @@ fun buildPkCalibrationInput(
     entries: List<MedicationLogEntry>,
     weightKg: Double?,
     metadata: List<E2CalibrationMetadata>,
-    /** Used only when there are no labs and no doses to anchor the origin. */
-    fallbackOriginEpochMillis: Long,
 ): PkCalibrationInput {
     val windowStart = calibrationDoseWindowStartEpochMillis(labs, Long.MIN_VALUE)
     val allEstradiolEntries = entries.filter { it.category == MedicationCategory.ESTRADIOL }
@@ -63,9 +61,11 @@ fun buildPkCalibrationInput(
     val estradiolEntries = allEstradiolEntries
         .filter { it.appliedAt.toEpochMilli() >= windowStart }
         .ifEmpty { listOfNotNull(allEstradiolEntries.maxByOrNull { it.appliedAt }) }
+    // With no lab and no dose there is nothing to place, so any origin is the
+    // same fit; a fixed one keeps the input, and the stored fit, off the clock.
     val origin = (labs.map { it.collectedAtEpochMillis } +
             estradiolEntries.map { it.appliedAt.toEpochMilli() })
-        .minOrNull() ?: fallbackOriginEpochMillis
+        .minOrNull() ?: 0L
     val anchor = Instant.ofEpochMilli(origin)
     val doseEvents = estradiolEntries.mapNotNull { entry ->
         entry.buildEstradiolPkDoseEvent(anchor)
@@ -76,8 +76,7 @@ fun buildPkCalibrationInput(
         originEpochMillis = origin,
         // Same resolution as the Home projection: an unset Current Weight
         // falls back to the app-wide default.
-        weightKg = weightKg?.takeIf { it.isFinite() && it > 0.0 }
-            ?: PkMedicationSimulation.DefaultBodyWeightKg,
+        weightKg = PkMedicationSimulation.resolvedBodyWeightKg(weightKg),
         metadata = metadata,
     )
 }
