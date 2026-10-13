@@ -293,6 +293,315 @@ should read the upstream README and its `pk_research/` workspace.
   only 79% by 72 h. At 70 kg, 0.75 mg/day averages 33 pg/mL above
   baseline and 1.5 mg/day averages 65.
 
+## How the estradiol constants were derived
+
+Everything needed to recompute the values in `PkCatalog` from the
+sources, without the local research notes.
+
+**Formulas.** Concentration is amount divided by `vdPerKg × weight`.
+Clearance is `CL = kClear × vdPerKg = 0.82 L/h/kg` (57.4 L/h at 70 kg,
+1,378 L/day). For a daily route, steady-state average
+`Cavg = F × daily E2 mg / (CL × 24 h)`, so a source's implied
+`F = Cavg(drug-attributable, pg/mL) × 1e-6 × CL(L/h) × 24 / daily mg`
+at the cohort's weight; for a single dose use its AUC and
+`F = AUC(pg·h/mL) × 1e-6 × CL(L/h) / mg`, or `F = CL / (CL/F)` when the
+paper reports an apparent oral clearance. Injections clear at
+`kClearInjection = kClear / 10`, so the share of an injected dose that
+reaches the blood is `10 × formationFraction` and no ester can exceed
+0.100; a source's share is `AUC × 1e-6 × CL / E2-equivalent mg`, with
+E2-equivalent mg = ester mg × 272.38 / ester molar mass (EB 376.5, EV
+356.5, EC 396.58, EN 384.56, EU 440.66). The mouth-absorbed part of a
+sublingual dose has an exposure-effective fraction of
+`θ × kClear / kElimSublingual` (0.08 × 0.342 = 0.027), and the swallowed
+part carries `(1 − θ) × F + sublingualRecyclingShare`. Every
+bioavailability in the catalog is therefore `F / CL` at 0.82 L/h/kg;
+anyone changing `kClear` or `vdPerKg` must rescale all of them. Weights
+in brackets below are the cohort means where the paper gives one, else
+the assumption used. `PkSimulationTest` holds runnable anchors for the
+oral steady state, the sublingual tail, Estrana, gel and cypionate.
+
+**Clearance and volume (`kClear 0.41`, `vdPerKg 2.0`).** Kuhnz, Blode
+& Zimmermann 1999, table 2, lists eleven human intravenous estradiol
+clearances in mL/min/kg: Hembree 1969 9.3, 11.9, 14.9 and 16.3 (male);
+Anderson 1993 10.5 and 15.0; Düsterberg 1985 11.2; Longcope & Williams
+1974 13.5; Longcope 1985 14.8; Kuhnz 1993 29.9 (cohort on a combined
+pill); Gabrielsson 1995 30.0 (truncated sampling). The catalog's 0.82
+L/h/kg is 13.7 mL/min/kg, fifth of eleven. The same chapter gives IV
+terminal half-lives of 1.7 h (Kuhnz 1993) and 2.2 h (Düsterberg 1985),
+so 0.41/h is at the fast end of 0.32–0.41/h. Düsterberg 1985 gives the
+only terminal-slope volume, 2.04–2.25 L/kg; steady-state volumes
+(Kuhnz 1993: 1.03–1.62 L/kg) are lower, so 2.0 is a modelling choice
+that pairs with `kClear`. Kuhl 2005's 580 L/day/m² metabolic clearance
+rate cites Kuhl 1990, which contains no clearance figure; it is not
+used.
+
+**Oral (`oralKAbs 0.045`, `oralBioavailability 0.030`).** Implied F at
+0.82 L/h/kg: Kuhnz 1993, 4 mg single dose, AUC 2,290 pg·h/mL [62 kg],
+CL/F 28.2 L/h/kg: 2.9% (the paper's own 4.9 ± 5.0% is the same data
+against its measured clearance of 1.5–1.8 L/h/kg). Price 1997, 1 mg,
+reported oral clearance 27.2 L/h/kg: 3.0%. Timmer 1999, 1.5 mg, AUC0-30
+750 pg·h/mL [64 kg]: 2.6%. Stadberg 1999, 1 mg single dose,
+baseline-corrected AUC0-24 2.14 nmol·h/L [66 kg]: 3.2%. Cattani 2023,
+2 mg valerate daily (1.53 mg E2), LC-MS/MS, AUCτ 1,003 pg·h/mL [67 kg],
+minus 10 pg/mL endogenous: 2.75%. Vervalcke 2024 (ENIGI), 4 mg valerate
+daily, LC-MS/MS, AUC 1,684 pg·h/mL, minus 10: 2.7%. Aedo 1990, 2 mg
+valerate daily, day-21 peak 79 pg/mL with a ~19 pg/mL unsubtracted
+baseline [64 kg]: 2.8–3.6%. Düsterberg 1985, 2 mg valerate, IV-referenced:
+"about 3%". The top of the 0.025–0.045 range is the uncorrected
+immunoassay steady state: Zumenon 2 mg SmPC Cav 62.9 pg/mL (4.3% at
+70 kg, 3.4–4.0% after a 5–10 pg/mL baseline), Stadberg day-28 AUC0-24
+3.92 nmol·h/L uncorrected (5.8%). `ka`: single-dose peak 6.5–6.7 h
+(Kuhnz), 6.5 h (Price), 6.8–8.4 h (Timmer), 8 h (Doll 2022, Stadberg),
+5.8 h at steady state (Zumenon); terminal half-life 13.5–15 h (Kuhnz),
+10–16 h (Zumenon), 14 h (Lopreeza label); day-1 to steady-state
+accumulation 1.53× (Aedo 1990, Table II), 1.42–1.63× (Stadberg after
+baseline correction). The model at 0.045/h gives 6.05 h, 15.4 h and
+1.59–1.62×; 0.06/h gave 5.5 h, 11.6 h and 1.37×. Kuhnz 1993 and the
+1999 chapter both report linear absorption to 4 mg and incomplete
+absorption at 8 mg.
+
+**Sublingual (`standardSublingualTheta 0.08`, `kAbsSublingual 1.8`,
+`kElimSublingual 1.2`, `sublingualRecyclingShare 0.004`).** θ from each
+study's net peak, solved through the model's own mucosal limb at the
+cohort's weight: Fiet 1982, 0.5 mg, 75 pg/mL net at 30 min [55 kg]:
+0.037; Casper & Yen 1981, 2 mg, 382 net at 30 min (follicular) and 633
+net at 45 min (hypogonadal) [60 kg assumed]: 0.057 and 0.091; Doll 2022,
+1 mg, 120 net at 1 h [BMI 33, ~95 kg assumed]: 0.060; Price 1997, 1 mg,
+441 net at 1 h [~80 kg]: 0.18; Burnier 1981, 0.5 mg, 750 net at 1 h:
+0.48. The three studies with a sample at or before 30 min or with
+LC-MS/MS give the 0.058 geometric mean; from the steady-state estrone
+ratios (Cirrincione 2021: E1/E2 4.3 sublingual against 9.28 oral and 0.4
+parenteral in the same population) θ solves to 0.101. Exposure: with
+oral F 0.030 the measured sublingual-to-oral AUC ratios of 1.8× (Doll,
+0–8 h, total) to 2.6× (Price, 0–24 h) need `θ × 0.342` between 0.027 and
+0.051; 0.08 gives 0.027 and a 24 h ratio of 2.5×. Decline: 2 h / 1 h of
+0.36 (Doll), 0.40 (Price), 0.52 (Burnier) against the model's 0.51; the
+IV phases after a bolus are 0.3 h and 0.9 h (Kuhnz 1993), i.e. 2.3/h and
+0.77/h, which bracket 1.2/h. Peak time 0.5 h (Casper & Yen, Fiet) to
+0.75 h against the model's 0.68 h. Recycling share: swept against
+Cirrincione's LC-MS/MS median of 154 pg/mL on 6 mg/day in three doses
+(model median 150 at 0%, 167 at 0.4%, 195 at 1%) and Cortez 2024's
+trough of 95 pg/mL on 6.2 mg/day (model 78, 89, 106); 0.4% is the
+smallest value that keeps the 8–24 h sublingual curve at or above oral.
+No primary source for an "11–14 h" sublingual half-life was found; the
+chapter Cirrincione cites contains none.
+
+**Injections (`formationFraction 0.078` for EB, EV, EC, EN).** Oriowo
+1980 (5 mg of each ester in arachis oil, n = 9–10 per group, RIA after
+chromatography, endogenous estradiol suppressed by a combined pill):
+Table V's baseline-subtracted mean during the elevated period times
+Table IV's duration gives EB 422 pg/mL × 4.5 d, EV 308 × 7.4 d, EC 159
+× 11.8 d, i.e. 12,605 / 14,309 / 13,140 pg·h/mL per mg of E2 equivalent,
+shares 0.72 / 0.82 / 0.75 at 57.4 L/h, F 0.072 / 0.082 / 0.075. Zhou
+1998, Table 5 (5 mg cypionate, n = 9, 57.6 kg; cycle 1 at days 0, 1, 3,
+5, 7, 14, 21, 28: 73, 290, 249, 255, 212, 149, 103, 91 pg/mL): F
+0.065–0.081 single dose, 0.075–0.088 over three cycles, depending on
+whether the day-0 or the day-28 value is subtracted. Rahimy 1999 (5 mg
+cypionate, n = 14, 58.4 kg, immunoassay): raw AUC0-28 2,741 pg·d/mL
+implies a share above 1 until the 46 pg/mL baseline is removed; then
+F 0.047–0.049; peak 247 pg/mL, median tmax 1.0 d, half-life 8.4 d.
+Schiavon 1988 (10 mg enanthate, n = 7 + 7, 56.6 and 61.6 kg): peaks 283
+pg/mL at 6.3 d and 314 at 4.2 d; the model gives 322 and 295 at 0.078,
+367 and 337 at 0.089. Garza-Flores 1994, Figure 2 (idealised
+four-ester overlay), digitised: EN 0.071, EC 0.076, EV 0.080. Valerate:
+Aedo 1985 (5 mg with norethisterone enanthate, n = 7, 57 kg) peak 428
+pg/mL at day 2, which the model matches at 0.062 (419) and overshoots at
+0.078 (525); Düsterberg & Nishino 1982, Figure 2 (4 mg, n = 2, no day-2
+sample) peaks at 394 pg/mL on day 2.7–3.1 and integrates to 1.3–1.6× the
+dose at this clearance, an upper bound; its 5 mg-scaled peak of 492–534
+needs 0.090–0.097 at 70 kg. The reference calculators give shares of
+0.695–0.926 (Estrannaise) and 0.680–0.936 (TFS); GAHT Plotter's EB
+(1.55) and EC (1.06) exceed 1 and are not used. Cypionate depot
+(`0.15 / 0.08 / 0.0035`): RMS residual against Zhou's trough-subtracted
+curve is 61 pg/mL for the old depot, 44 at k1Fast 0.04, 31 at 0.08.
+Enanthate's depot peaks at 5.9 d against Schiavon's 6.3 d. Valerate's
+two primaries disagree on its tail (Oriowo: baseline by day 7–8;
+Düsterberg & Nishino: 148 pg/mL at day 10), so its depot is unchanged.
+
+**Gel (`gelFMax 0.060`, `gelK1 0.04`).** Implied F at 70 kg, uncorrected
+then after a 5 pg/mL baseline: Oestrogel UK SmPC, 2.5 g (1.5 mg) daily,
+day-12 average 76.8 pg/mL: 0.071 / 0.066. Maggacis 2025 (81 trans and
+gender-diverse adults on EstroGel 0.06%), median 77.6 pg/mL at 1.5
+mg/day (endogenous unknown): 0.071. Le Estrogel 0.06% JP insert, 1.8 g
+(1.08 mg) for 14 days, Css 60.8 pg/mL: 0.078 / 0.071. EstroGel US
+label, 1.25 g (0.75 mg), day-14 average 28.3 pg/mL, stated unadjusted:
+0.052 / 0.043. Scott 1991, 1.5 mg, 68.1 pg/mL: 0.063 / 0.058. Järvinen
+1997 (1 mg of 0.1% gel daily, n = 16, 62 kg, steady-state AUC0-24
+5,830 / 4,930 / 2,750 pmol·h/L on 200 cm² / 400 cm² / both thighs):
+0.081 / 0.068 / 0.038, a log-linear area dependence that passes through
+0.057 at 750 cm². Järvinen 1999 (n = 15): 1.5 mg of the same gel gave
+1.09× (CI 0.86–1.21) the steady-state AUC of an Estraderm 50 µg/day
+patch, i.e. 0.036 if the patch delivers its nominal rate. `gelK1`:
+steady-state peak 4 ± 1 h and 5 ± 1 h on 200 and 400 cm² (Järvinen
+1997), single-dose peak 6 ± 1 h gluteal and 8 ± 1 h abdominal (Järvinen
+1999), steady state "after the third daily application" (EstroGel), "72
+hours after the first dose" (Le Estrogel), "3–5 days" (Oestrogel); the
+model gives 5.0 h, 6.3 h and 94% of steady state after the third dose.
+
+**Estrana (`patchFallbackK1 0.0035`).** Estrana tape package insert
+(Hisamitsu, Japan): 0.72 mg worn 48 h holds 52.0–53.8 pg/mL from 8–12 h
+until removal and 52.5–60.5 pg/mL at 48 h on repeated use, in
+postmenopausal women; the model gives 48–53 pg/mL at 55 kg.
+
+### Sources
+
+Labels and inserts:
+
+- Zumenon 2 mg film-coated tablets SmPC, section 5.2 (Exeltis UK),
+  <https://www.medicines.org.uk/emc/product/1174/smpc>.
+- Oestrogel 0.06% gel SmPC, section 5.2 (Besins UK),
+  <https://www.medicines.org.uk/emc/product/353/smpc>.
+- EstroGel 0.06% label, FDA NDA 021166, 2014,
+  <https://www.accessdata.fda.gov/drugsatfda_docs/label/2014/021166s010lbl.pdf>.
+- Le Estrogel 0.06% (ル・エストロジェル) package insert, Fuji Pharma,
+  JAPIC PINS 00053549, <https://pins.japic.or.jp/pdf/newPINS/00053549.pdf>.
+- Estrana tape (エストラーナテープ) package insert, Hisamitsu, JAPIC PINS.
+- Progynon Depot 10 mg package insert, Fuji Pharma, JAPIC PINS 00054648
+  (qualitative: peak 3–5 days, half-life 4–5 days, citing Düsterberg).
+- Bijuva and Lopreeza prescribing information (DailyMed), used as
+  oral cross-checks; Divigel clinical pharmacology review, FDA NDA
+  022038, 2007.
+
+Oral and clearance:
+
+- Kuhnz W, Gansau C, Mahler M. Pharmacokinetics of estradiol, free and
+  total estrone, in young women following single intravenous and oral
+  administration of 17β-estradiol. Arzneimittelforschung
+  1993;43(9):966–973. PMID 8240460.
+- Kuhnz W, Blode H, Zimmermann H. Pharmacokinetics of exogenous natural
+  and synthetic estrogens and antiestrogens. In: Oettel M, Schillinger
+  E, eds. Estrogens and Antiestrogens II. Handbook of Experimental
+  Pharmacology 135/II. Springer, 1999: ch. 35, 261–322.
+- Düsterberg B, Schmidt-Gollwitzer M, Hümpel M. Pharmacokinetics and
+  biotransformation of estradiol valerate in ovariectomized women. Horm
+  Res 1985;21(3):145–154. doi:10.1159/000180039.
+- Düsterberg B, Nishino Y. Pharmacokinetic and pharmacological features
+  of oestradiol valerate. Maturitas 1982;4(4):315–324.
+  doi:10.1016/0378-5122(82)90064-0.
+- Timmer CJ, Geurts TBP. Bioequivalence assessment of three different
+  estradiol formulations in postmenopausal women in an open, randomized,
+  single-dose, 3-way cross-over study. Eur J Drug Metab Pharmacokinet
+  1999;24(1):47–53. PMID 10412891.
+- Aedo AR, Landgren BM, Diczfalusy E. Pharmacokinetics and
+  biotransformation of orally administered oestrone sulphate and
+  oestradiol valerate in postmenopausal women. Maturitas
+  1990;12(4):333–343.
+- Stadberg E, Westlund P, Landgren BM, et al. Bioavailability of
+  norethisterone acetate alone and in combination with estradiol
+  administered in single or multiple oral doses to postmenopausal women.
+  Maturitas 1999;33(1):59–69.
+- Cattani VB, Jalil EM, Eksterman L, et al. Estradiol and spironolactone
+  plasma pharmacokinetics among Brazilian transgender women using HIV
+  pre-exposure prophylaxis. Clin Pharmacokinet 2023;62(7):1031–1041.
+  doi:10.1007/s40262-023-01248-0.
+- Vervalcke J, et al. (ENIGI). Endocrine Abstracts 106:016,
+  <https://www.endocrine-abstracts.org/ea/0106/ea0106016>.
+- Leinung MC, Feustel PJ, Joseph J. Hormonal treatment of transgender
+  women with oral estradiol. Transgend Health 2018;3(1):74–81.
+- Nolan BJ, et al. Relationships between body mass index with oral
+  estradiol dose and serum estradiol concentration in transgender adults
+  undergoing feminising hormone therapy. Ther Adv Endocrinol Metab
+  2020;11:2042018820924543.
+- Wiegratz I, Fink T, Rohr UD, Lang E, Leukel P, Kuhl H. Cross-over
+  comparison of the pharmacokinetics of estradiol under hormone
+  replacement therapy with estradiol valerate or micronized estradiol.
+  Zentralbl Gynakol 2001;123(9):505–512.
+- Kuhl H. Pharmacology of estrogens and progestogens: influence of
+  different routes of administration. Climacteric 2005;8 Suppl 1:3–63.
+  doi:10.1080/13697130500148875.
+- Kuhl H. Pharmacokinetics of oestrogens and progestogens. Maturitas
+  1990;12(3):171–197.
+
+Sublingual:
+
+- Doll E, Gunsolus I, Thorgerson A, Tangpricha V, Lamberton N,
+  Sarvaideo JL. Pharmacokinetics of sublingual versus oral estradiol in
+  transgender women. Endocr Pract 2022;28(3):237–242.
+  doi:10.1016/j.eprac.2021.11.081.
+- Price TM, Blauer KL, Hansen M, Stanczyk F, Lobo R, Bates GW.
+  Single-dose pharmacokinetics of sublingual versus oral administration
+  of micronized 17β-estradiol. Obstet Gynecol 1997;89(3):340–345.
+  doi:10.1016/S0029-7844(96)00513-3.
+- Burnier AM, Martin PL, Yen SSC, Brooks P. Sublingual absorption of
+  micronized 17β-estradiol. Am J Obstet Gynecol 1981;140(2):146–150.
+  doi:10.1016/0002-9378(81)90101-0.
+- Casper RF, Yen SSC. Rapid absorption of micronized estradiol-17β
+  following sublingual administration. Obstet Gynecol 1981;57(1):62–64.
+  PMID 7454177.
+- Fiet J, Hermano M, Witte J, et al. Post-menopausal concentrations of
+  plasma oestradiol, oestrone, FSH and LH and of total urinary
+  oestradiol and oestrone after a single sublingual dose of
+  oestradiol-17β. Acta Endocrinol (Copenh) 1982;101(1):93–97.
+- Cirrincione LR, Winston McPherson G, Rongitsch J, et al. Sublingual
+  estradiol is associated with higher estrone concentrations than
+  transdermal or injectable preparations in transgender women and
+  gender nonbinary adults. LGBT Health 2021;8(2):125–132.
+  doi:10.1089/lgbt.2020.0249.
+- Cortez et al. Sublingual versus transdermal estradiol in transgender
+  women, a randomised trial. J Endocr Soc 2024.
+  doi:10.1210/jendso/bvae108.
+- Kariyawasam et al. Estrone and estradiol by route of administration
+  in transgender adults. 2025. PMC12180117.
+
+Injections:
+
+- Oriowo MA, Landgren BM, Stenström B, Diczfalusy E. A comparison of
+  the pharmacokinetic properties of three estradiol esters.
+  Contraception 1980;21(4):415–424. PMID 7389356.
+- Aedo AR, Landgren BM, Johannisson E, Diczfalusy E. Pharmacokinetic
+  and pharmacodynamic investigations with monthly injectable
+  contraceptive preparations. Contraception 1985;31(5):453–469.
+- Zhou XF, Shao QX, Han XJ, Weng LJ, Sang GW. Pharmacokinetics of
+  medroxyprogesterone acetate after single and multiple injection of
+  Cyclofem in Chinese women. Contraception 1998;57(6):405–411.
+- Rahimy MH, Ryan KK, Hopkins NK. Lunelle monthly contraceptive
+  injection: steady-state pharmacokinetics of MPA and E2 in surgically
+  sterile women. Contraception 1999;60(4):209–214.
+  doi:10.1016/s0010-7824(99)00086-4.
+- Rahimy MH, Cromie MA, Hopkins NK, Tong DM. Lunelle: effects of body
+  weight and injection sites on pharmacokinetics. Contraception
+  1999;60(4):201–208. doi:10.1016/s0010-7824(99)00085-2 (no estradiol
+  data; MPA only).
+- Fotherby K, Benagiano G, Toppozada HK, et al. A preliminary
+  pharmacological trial of the monthly injectable contraceptive
+  Cyclo-Provera. Contraception 1982;25.
+- Schiavon R, Benavides S, Oropeza G, et al. Serum estrogens and
+  ovulation return in chronic users of a once-a-month injectable
+  contraceptive. Contraception 1988;37(6):591–598.
+- Garza-Flores J. Pharmacokinetics of once-a-month injectable
+  contraceptives. Contraception 1994;49(4):347–359.
+  doi:10.1016/0010-7824(94)90032-9.
+
+Gel and patch:
+
+- Järvinen A, Granander M, Nykänen S, et al. Steady-state
+  pharmacokinetics of oestradiol gel in post-menopausal women: effects
+  of application area and washing. Br J Obstet Gynaecol 1997;104 Suppl
+  16:14–18. doi:10.1111/j.1471-0528.1997.tb11562.x.
+- Järvinen A, Nykänen S, Paasiniemi L. Absorption and bioavailability
+  of oestradiol from a gel, a patch and a tablet. Maturitas
+  1999;32(2):103–113. doi:10.1016/S0378-5122(99)00021-3.
+- Scott RT Jr, Ross B, Anderson C, Archer DF. Pharmacokinetics of
+  percutaneous estradiol: a crossover study using a gel and a
+  transdermal system in comparison with oral micronized estradiol.
+  Obstet Gynecol 1991;77(5):758–764. PMID 2014090.
+- Rohr UD, Nauert C, Stehle B. 17β-estradiol delivered by three
+  different matrix patches 50 µg/day: a three way cross-over study in 21
+  postmenopausal women. Maturitas 1999;33(1):45–58.
+- Maggacis, Cheung AS, Nolan BJ. Estradiol concentrations with
+  transdermal estradiol gel in trans and gender-diverse adults. Clin
+  Endocrinol (Oxf) 2025. doi:10.1111/cen.15217.
+
+Reference calculators (parameters read from their shipped source):
+
+- Estrannaise, <https://estrannai.se>, source
+  <https://github.com/WHSAH/estrannaise.js>.
+- Transfeminine Science injectable estradiol simulator,
+  <https://transfemscience.org/misc/injectable-e2-simulator/>, and its
+  meta-analysis, <https://transfemscience.org/articles/injectable-e2-meta-analysis/>.
+- GAHT Plotter, <https://gahtplotter.com> (no public source; model read
+  from the shipped bundle).
+
 ## Route-scale estimate calibration
 
 Featherline 1.4.0 adds a per-user estimate calibration of its own, not taken
@@ -379,9 +688,9 @@ The PK engine swap gates three deferred refactors, all enumerated in
 
 ## Out of scope
 
-- **The PK math itself.** Compartment equations, parameter
-  derivations, and the literature anchors for each constant live in
-  the upstream README and its `pk_research/` workspace.
+- **The PK math itself.** Compartment equations live in the upstream
+  README and its `pk_research/` workspace; the estradiol constants'
+  derivations and sources are in the section above.
 - **Testosterone as a user-facing simulation.** `PkHormone.TESTOSTERONE`
   exists in the catalog with full parameters, but no user-logged
   category currently produces testosterone PK events, so testosterone
