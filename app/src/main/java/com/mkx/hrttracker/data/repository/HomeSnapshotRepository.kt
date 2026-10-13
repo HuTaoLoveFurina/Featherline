@@ -1412,7 +1412,9 @@ class HomeCalibrationBuild(
         get() = forcedChanges.value
 }
 
-internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 8
+// Bumped to 9 with the Oct 2026 estradiol PK refit so every install rebuilds its cached
+// projections and calibration on the first open after the update.
+internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 9
 
 // Cache-input lookback past the visible chart window. 180 d is enough for
 // steady-state PK history regardless of option; the forward span is owned
