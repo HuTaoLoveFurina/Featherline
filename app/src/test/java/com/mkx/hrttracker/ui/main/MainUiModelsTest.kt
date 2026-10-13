@@ -23,6 +23,7 @@ import com.mkx.hrttracker.util.formatMainE2ConcentrationValue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -243,92 +244,35 @@ class MainUiModelsTest {
     }
 
     @Test
-    fun mainE2ChartAxisTickIntervalDays_ladder() {
-        // ≤ 7 d (168 h) visible → daily
-        assertEquals(1L, mainE2ChartAxisTickIntervalDays(48.0))
-        assertEquals(1L, mainE2ChartAxisTickIntervalDays(168.0))
-        // ≤ 14 d (336 h) → every 2 days
-        assertEquals(2L, mainE2ChartAxisTickIntervalDays(168.0 + 1e-3))
-        assertEquals(2L, mainE2ChartAxisTickIntervalDays(336.0))
-        // ≤ 30 d (720 h) → every 6 days
-        assertEquals(6L, mainE2ChartAxisTickIntervalDays(336.0 + 1e-3))
-        assertEquals(6L, mainE2ChartAxisTickIntervalDays(720.0))
-        // > 30 d → weekly
-        assertEquals(7L, mainE2ChartAxisTickIntervalDays(720.0 + 1e-3))
-        assertEquals(7L, mainE2ChartAxisTickIntervalDays(2400.0))
+    fun mainE2ChartAxisBaseGrid_prefersCentredNineDayGridThenSixDay() {
+        // Narrow labels: four nine-day labels on days 1, 10, 19, 28 fit.
+        assertEquals(
+            MainE2ChartAxisGrid(stepDays = 9, anchorDay = 1),
+            mainE2ChartAxisBaseGrid(720, minEdgeHours = 30.0, minStepHours = 100.0),
+        )
+        // S20-like: the nine-day grid's outer labels (36h from the ends) clip,
+        // so five six-day labels on days 3, 9, 15, 21, 27 (84h/60h margins).
+        assertEquals(
+            MainE2ChartAxisGrid(stepDays = 6, anchorDay = 3),
+            mainE2ChartAxisBaseGrid(720, minEdgeHours = 50.0, minStepHours = 134.0),
+        )
+        // Nothing fits: fall back to the six-day grid.
+        assertEquals(
+            MainE2ChartAxisGrid(stepDays = 6, anchorDay = 3),
+            mainE2ChartAxisBaseGrid(720, minEdgeHours = 70.0, minStepHours = 200.0),
+        )
     }
 
     @Test
-    fun mainE2ChartAxisLabelTickHours_dailyOver7DayWindow() {
-        // 3 past + 4 future days from a 23:37 anchor: window is May 2–9.
-        // Edge-day suppression drops May 2 (firstDay) and May 8 (lastDay),
-        // leaving 5 ticks at noons of May 3–7.
-        val windowStart = mainE2ChartWindowStart(LocalDateTime.of(2026, 5, 5, 23, 37))
-        val ticks = mainE2ChartAxisLabelTickHours(
-            chartWindowStart = windowStart,
-            chartWindowHours = 168,
-            visibleXRange = 0.0..168.0,
-            intervalDays = 1L,
-        )
-
-        assertEquals(5, ticks.size)
-        assertEquals(listOf(36.0, 60.0, 84.0, 108.0, 132.0), ticks)
-    }
-
-    @Test
-    fun mainE2ChartAxisLabelTickHours_filtersToVisibleRange() {
-        // Zoomed in to a 3-day window centered around day 4 of a 7-day chart:
-        // only ticks whose noon falls inside [72, 144] should survive.
-        val windowStart = mainE2ChartWindowStart(LocalDateTime.of(2026, 5, 5, 23, 37))
-        val ticks = mainE2ChartAxisLabelTickHours(
-            chartWindowStart = windowStart,
-            chartWindowHours = 168,
-            visibleXRange = 72.0..144.0,
-            intervalDays = 1L,
-        )
-
-        assertEquals(listOf(84.0, 108.0, 132.0), ticks)
-    }
-
-    @Test
-    fun mainE2ChartAxisLabelTickHours_30DayFiveDaySpacingSkipsEdgeDays() {
-        // THIRTY_DAYS window (Apr 19–May 19): intervalDays=5, anchor offset=2.
-        // Anchor = Apr 21; steps land on Apr 21, 26, May 1, 6, 11, 16.
-        // Edge days Apr 19/May 18 not reached; all 6 ticks survive.
-        val windowStart = mainE2ChartWindowStart(
-            LocalDateTime.of(2026, 5, 5, 23, 37),
-            pastDays = 16L,
-        )
-        val ticks = mainE2ChartAxisLabelTickHours(
-            chartWindowStart = windowStart,
-            chartWindowHours = 720,
-            visibleXRange = 0.0..720.0,
-            intervalDays = 5L,
-        )
-
-        assertEquals(6, ticks.size)
-        assertEquals(listOf(60.0, 180.0, 300.0, 420.0, 540.0, 660.0), ticks)
-    }
-
-    @Test
-    fun mainE2ChartAxisLabelTickHours_30DayDefaultUsesSixDaySpacing() {
-        // THIRTY_DAYS at full zoom: visibleHours = 720 → intervalDays = 6.
-        // Window Apr 19–May 19; anchor offset = 3 → anchor = Apr 22.
-        // Steps land on Apr 22, 28, May 4, 10, 16 — 5 ticks from day 4 to
-        // day 28, covering the range from near-start to near-end.
-        val windowStart = mainE2ChartWindowStart(
-            LocalDateTime.of(2026, 5, 5, 23, 37),
-            pastDays = 16L,
-        )
-        val ticks = mainE2ChartAxisLabelTickHours(
-            chartWindowStart = windowStart,
-            chartWindowHours = 720,
-            visibleXRange = 0.0..720.0,
-            intervalDays = 6L,
-        )
-
-        assertEquals(5, ticks.size)
-        assertEquals(listOf(84.0, 228.0, 372.0, 516.0, 660.0), ticks)
+    fun mainE2ChartAxisGridHours_finerStepsKeepEveryCoarserLabel() {
+        val nineDay = mainE2ChartAxisGridHours(720, anchorDay = 1, stepDays = 9)
+        assertEquals(listOf(36.0, 252.0, 468.0, 684.0), nineDay)
+        val sixDay = mainE2ChartAxisGridHours(720, anchorDay = 3, stepDays = 6)
+        assertEquals(listOf(84.0, 228.0, 372.0, 516.0, 660.0), sixDay)
+        // Same anchor, finer steps: every coarser label stays put.
+        assertTrue(mainE2ChartAxisGridHours(720, anchorDay = 1, stepDays = 3).containsAll(nineDay))
+        assertTrue(mainE2ChartAxisGridHours(720, anchorDay = 3, stepDays = 3).containsAll(sixDay))
+        assertEquals(30, mainE2ChartAxisGridHours(720, anchorDay = 1, stepDays = 1).size)
     }
 
     @Test

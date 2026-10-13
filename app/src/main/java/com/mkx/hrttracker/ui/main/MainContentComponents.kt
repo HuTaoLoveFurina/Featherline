@@ -147,6 +147,7 @@ import com.patrykandpatrick.vico.compose.cartesian.VicoZoomState
 import com.patrykandpatrick.vico.compose.cartesian.Zoom
 import com.patrykandpatrick.vico.compose.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.VerticalAxis
+import com.patrykandpatrick.vico.compose.cartesian.axis.rememberAxisLabelComponent
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModel
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianLayerRangeProvider
@@ -163,6 +164,7 @@ import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoZoomState
 import com.patrykandpatrick.vico.compose.common.Fill
+import com.patrykandpatrick.vico.compose.common.Insets
 import com.patrykandpatrick.vico.compose.common.component.ShapeComponent
 import com.patrykandpatrick.vico.compose.common.data.CartesianLayerDrawingModelInterpolator
 import com.patrykandpatrick.vico.compose.common.data.ExtraStore
@@ -181,7 +183,6 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.util.UUID
-import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -335,7 +336,9 @@ private val MainE2ChartMinimapHeight = 48.dp
 private val MainE2ChartMinimapHorizontalInset = 5.dp
 private val MainE2ChartMinimapResetButtonSize = 32.dp
 private val MainE2ChartMinimapDateLabelGap = 8.dp
-private val MainE2ChartAxisLabelGap = 4.dp
+// Minimum space between bottom-axis labels. The labels carry no horizontal
+// padding of their own, so labels at the window's ends can sit closer to it.
+private val MainE2ChartAxisLabelGap = 12.dp
 
 // Start label pins to the viewport's left edge and end label to its right
 // edge, both clamped to the canvas. When a narrow viewport would make them
@@ -1493,6 +1496,9 @@ internal fun MainE2ChartCard(
                                         itemPlacer = startAxisItemPlacer,
                                     ),
                                     bottomAxis = HorizontalAxis.rememberBottom(
+                                        label = rememberAxisLabelComponent(
+                                            padding = Insets(horizontal = 0.dp, vertical = 4.dp),
+                                        ),
                                         valueFormatter = bottomAxisValueFormatter,
                                         tick = null,
                                         guideline = null,
@@ -2448,23 +2454,33 @@ private class ExtraStoreAwareHorizontalAxisItemPlacer : HorizontalAxis.ItemPlace
             }
 
             HomeE2ChartWindowOption.THIRTY_DAYS -> {
-                val visibleHours = visibleXRange.endInclusive - visibleXRange.start
-                // Vico ellipsizes a label wider than the gap to its neighbours
-                // (or twice its distance to the chart's ends), so widen the
-                // interval until the widest label fits, and drop edge ticks
-                // too close to the ends — large font scales on narrow screens.
+                // The base grid is picked at the full-view scale, so it never
+                // changes mid-zoom; the step then refines through nested grids
+                // while labels fit and no more than about seven are on screen.
+                val fullHours = fullXRange.endInclusive - fullXRange.start
+                val fullViewPxPerHour = context.layerBounds.width / fullHours
                 val pxPerHour = context.layerDimensions.xSpacing / context.ranges.xStep
-                val neededWidth = maxLabelWidth + with(context) { MainE2ChartAxisLabelGap.pixels }
-                val fitDays = ceil(neededWidth / (pxPerHour * 24.0)).toLong()
-                mainE2ChartAxisLabelTickHours(
-                    chartWindowStart = spec.chartWindowStart,
-                    chartWindowHours = spec.chartWindowHours,
-                    visibleXRange = visibleXRange,
-                    intervalDays = maxOf(mainE2ChartAxisTickIntervalDays(visibleHours), fitDays),
-                ).filter { x ->
-                    val edgeHours = minOf(x - fullXRange.start, fullXRange.endInclusive - x)
-                    2 * edgeHours * pxPerHour >= maxLabelWidth
-                }
+                val minStepPx = maxLabelWidth + with(context) { MainE2ChartAxisLabelGap.pixels }
+                val grid = mainE2ChartAxisBaseGrid(
+                    windowHours = spec.chartWindowHours,
+                    minEdgeHours = maxLabelWidth / 2 / fullViewPxPerHour,
+                    minStepHours = minStepPx / fullViewPxPerHour,
+                )
+                val visibleDays = (visibleXRange.endInclusive - visibleXRange.start) / 24
+                val stepDays = listOf(1, 3, grid.stepDays).firstOrNull { step ->
+                    step >= visibleDays / 7 && step * 24 * pxPerHour >= minStepPx
+                } ?: (grid.stepDays * 2)
+                // Vico ellipsizes a label nearer the window's ends than half its
+                // width. Labels just outside the viewport stay, so they scroll
+                // in under the clip instead of popping in.
+                val halfLabelHours = maxLabelWidth / 2 / pxPerHour
+                mainE2ChartAxisGridHours(spec.chartWindowHours, grid.anchorDay, stepDays)
+                    .filter { x ->
+                        x - fullXRange.start >= halfLabelHours &&
+                            fullXRange.endInclusive - x >= halfLabelHours &&
+                            x >= visibleXRange.start - halfLabelHours &&
+                            x <= visibleXRange.endInclusive + halfLabelHours
+                    }
             }
         }
     }
@@ -2511,11 +2527,10 @@ private class ExtraStoreAwareHorizontalAxisItemPlacer : HorizontalAxis.ItemPlace
             ?: return listOf(fullXRange.start)
         val ticks = when (spec.chartWindowOption) {
             HomeE2ChartWindowOption.SEVEN_DAYS -> noonTicksFor(spec)
-            HomeE2ChartWindowOption.THIRTY_DAYS -> mainE2ChartAxisLabelTickHours(
-                chartWindowStart = spec.chartWindowStart,
-                chartWindowHours = spec.chartWindowHours,
-                visibleXRange = fullXRange,
-                intervalDays = 1L,
+            HomeE2ChartWindowOption.THIRTY_DAYS -> mainE2ChartAxisGridHours(
+                windowHours = spec.chartWindowHours,
+                anchorDay = 0,
+                stepDays = 1,
             )
         }
         return ticks.ifEmpty { listOf(fullXRange.start) }
