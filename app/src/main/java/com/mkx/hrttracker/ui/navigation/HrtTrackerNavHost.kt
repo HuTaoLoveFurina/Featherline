@@ -97,6 +97,7 @@ import com.mkx.hrttracker.ui.plan.ArchivedMedicationGroupsScreen
 import com.mkx.hrttracker.ui.plan.MedicationGroupEditorScreen
 import com.mkx.hrttracker.ui.plan.MedicationGroupEditorViewModel
 import com.mkx.hrttracker.ui.plan.PlanBatchAddScreen
+import com.mkx.hrttracker.ui.plan.toDraftGroupReferences
 import com.mkx.hrttracker.ui.plan.PlanScreen
 import com.mkx.hrttracker.ui.postLogStockWarningDestination
 import com.mkx.hrttracker.ui.postLogStockWarningSnackbarMessage
@@ -1171,6 +1172,28 @@ fun HrtTrackerNavHost(
                             slotResultKey = slotResultKey,
                             manualLogResultKey = ADD_ENTRY_SLOT_RESULT_KEY,
                         )
+                        // A group-slot pick comes from the plan editor right
+                        // below; count its unsaved draft so a slot removed
+                        // there no longer shows as a plan using that medicine.
+                        val groupSlotMode = launchMode as? MedicineManagerLaunchMode.GroupSlot
+                        val groupEditorEntry = remember(backStackEntry) {
+                            navController.previousBackStackEntry?.takeIf {
+                                groupSlotMode != null &&
+                                    it.destination.route == Screen.EditMedicationGroup.route
+                            }
+                        }
+                        val draftGroup = if (groupSlotMode != null && groupEditorEntry != null) {
+                            val groupEditorViewModel: MedicationGroupEditorViewModel =
+                                hiltViewModel(groupEditorEntry)
+                            val editorState by groupEditorViewModel.uiState
+                                .collectAsStateWithLifecycle()
+                            editorState.toDraftGroupReferences(
+                                pickingLocalId = groupSlotMode.resultKey
+                                    .removePrefix(GROUP_SLOT_MEDICINE_RESULT_KEY_PREFIX),
+                            )
+                        } else {
+                            null
+                        }
                         // Sheet-completion pops below fire after the sheet's
                         // hide animation and can race an in-flight navigation,
                         // which silently drops the pop and strands the user on
@@ -1224,6 +1247,7 @@ fun HrtTrackerNavHost(
                             onNewMedicineCreated = stockNudgeViewModel::onNewMedicineCreated,
                             stockNudgeEnabled = stockNudgeEnabled,
                             onSetStockNudgeEnabled = stockNudgeViewModel::setEnabled,
+                            draftGroup = draftGroup,
                         )
                     }
                 }

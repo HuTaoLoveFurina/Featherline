@@ -185,12 +185,14 @@ internal fun MedicinesScreen(
     onNewMedicineCreated: (UUID) -> Unit = { },
     stockNudgeEnabled: Boolean = true,
     onSetStockNudgeEnabled: (Boolean) -> Unit = { },
+    draftGroup: DraftGroupReferences? = null,
     viewModel: MedicinesViewModel = hiltViewModel(),
     createMedicineViewModel: CreateMedicineViewModel = hiltViewModel(),
     slotDraftViewModel: MedicineSlotDraftViewModel = hiltViewModel(),
     newMedicineSlotViewModel: NewMedicineSlotViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val savedUiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState = remember(savedUiState, draftGroup) { savedUiState.withDraftGroup(draftGroup) }
     val stockOptInResult by viewModel.stockOptInResult.collectAsStateWithLifecycle()
     val slotDraftUiState by slotDraftViewModel.uiState.collectAsStateWithLifecycle()
     val newMedicineSlotUiState by newMedicineSlotViewModel.uiState.collectAsStateWithLifecycle()
@@ -842,7 +844,7 @@ private fun MedicinesScreenPreview() {
                         medicines = listOf(
                             MedicineListItem(
                                 medicine = previewMedicine(),
-                                activeGroupReferenceCount = 2,
+                                activeGroupIds = setOf(UUID.randomUUID(), UUID.randomUUID()),
                             ),
                         ),
                     ),
@@ -869,7 +871,7 @@ private fun MedicinesScreenOnboardingPreview() {
                         medicines = listOf(
                             MedicineListItem(
                                 medicine = previewMedicine(),
-                                activeGroupReferenceCount = 2,
+                                activeGroupIds = setOf(UUID.randomUUID(), UUID.randomUUID()),
                             ),
                         ),
                     ),
