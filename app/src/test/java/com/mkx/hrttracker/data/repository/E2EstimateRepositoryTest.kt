@@ -21,7 +21,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -108,9 +107,15 @@ class E2EstimateRepositoryTest {
     // and the durable generation.
     private val cache = MutableStateFlow<HomeCacheState?>(HomeCacheState(0L, homeData = null, e2Inputs = null))
     private val generation = MutableStateFlow(0L)
+
+    // Whether the worker has a run pending or going, and the runs the
+    // observations asked for while it had none.
+    private var workerBusy = false
+    private var runsAsked = 0
     private val homeSnapshotRepository: HomeSnapshotRepository = mockk(relaxed = true) {
         every { cache } returns this@E2EstimateRepositoryTest.cache
         every { generation } returns this@E2EstimateRepositoryTest.generation
+        every { requestRebuildIfIdle() } answers { if (!workerBusy) runsAsked++ }
     }
 
     private var stored: HomeE2EstimateRecord? = null
@@ -181,16 +186,25 @@ class E2EstimateRepositoryTest {
     }
 
     @Test
-    fun coldStart_withNoInputs_hasNoValue_andAsksForARebuild() = runTest {
+    fun coldStart_withNoInputs_hasNoValue_andAsksForARunUnlessOneIsGoing() = runTest {
         stored = storedFor(record(), beforeSlot)
         val estimates = estimates()
 
+        // The startup's own run is going: the observation adds none.
+        workerBusy = true
         val states = observe(estimates)
         runCurrent()
+        assertEquals(0, runsAsked)
 
-        assertEquals(listOf(E2State<HomeE2Estimate>(null)), states.distinct())
+        // With none going, as after that run failed for good, it asks.
+        stopAll()
+        workerBusy = false
+        val again = observe(estimates)
+        runCurrent()
+
+        assertEquals(listOf(E2State<HomeE2Estimate>(null)), (states + again).distinct())
         assertEquals(0, derivations)
-        verify { homeSnapshotRepository.requestRebuild() }
+        assertEquals(1, runsAsked)
     }
 
     @Test
@@ -274,44 +288,54 @@ class E2EstimateRepositoryTest {
         // inputs and the stored estimate still match each other, but the
         // inputs are behind the durable generation. The shown value holds,
         // a change someone made.
+        workerBusy = true
         generation.value = 1L
         runCurrent()
         assertEquals(E2State(shown, E2Pending.USER), running.last())
 
         // A screen coming to the foreground meanwhile shows the skeleton, with
-        // nothing to hold, and asks for a run.
+        // nothing to hold, and adds no run to the mutation's.
         val returned = observe(estimates)
         runCurrent()
         assertTrue(returned.all { state -> state == E2State<HomeE2Estimate>(null) })
-        verify(exactly = 1) { homeSnapshotRepository.requestRebuild() }
+        assertEquals(0, runsAsked)
         assertSame(shown, running.last().value)
         assertEquals(0, derivations)
     }
 
     @Test
-    fun onlyAnObservationThatStartsBehind_asksForARun_andOnlyOnce() = runTest {
+    fun anObservationBehind_asksEachMinuteWhileNoRunIsGoing_untilAPublish() = runTest {
         publish(record())
         val estimates = estimates()
         val running = observe(estimates)
         runCurrent()
 
-        // A mutation the running observation sees asks for its own run.
+        // A mutation commits, and its run is going or backing off: nothing
+        // to ask for, at the bump or at the next minute.
+        workerBusy = true
         generation.value = 1L
         runCurrent()
         setNow(beforeSlot.plusMinutes(1))
         runCurrent()
-        verify(exactly = 0) { homeSnapshotRepository.requestRebuild() }
+        assertEquals(0, runsAsked)
 
-        // One that starts behind asks once, the retry after a failed run, and
-        // not again on each tick.
-        observe(estimates)
-        runCurrent()
+        // The run failed for good: each minute asks again while it is behind.
+        workerBusy = false
         setNow(beforeSlot.plusMinutes(2))
         runCurrent()
+        assertEquals(1, runsAsked)
         setNow(beforeSlot.plusMinutes(3))
         runCurrent()
-        verify(exactly = 1) { homeSnapshotRepository.requestRebuild() }
+        assertEquals(2, runsAsked)
+
+        // A run publishes the mutation: current again, nothing more to ask.
+        publish(record(generation = 1L))
+        runCurrent()
+        setNow(beforeSlot.plusMinutes(4))
+        runCurrent()
+        assertEquals(2, runsAsked)
         assertNotNull(running.last().value)
+        assertNull(running.last().pending)
     }
 
     @Test

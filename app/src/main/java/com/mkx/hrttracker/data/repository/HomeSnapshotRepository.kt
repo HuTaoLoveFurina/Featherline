@@ -119,6 +119,11 @@ class HomeSnapshotRepository @Inject constructor(
     private val runsStarted = AtomicLong(0L)
     private val runsFinished = MutableStateFlow(0L)
 
+    // From a request's receipt until the worker waits for the next one: a
+    // run is pending or going, its retries' backoff included.
+    @Volatile
+    private var busy = false
+
     init {
         // Undispatched, so the load holds the gate's lock before anything can
         // call the gate: no mutation lands before it reads the durable
@@ -127,7 +132,9 @@ class HomeSnapshotRepository @Inject constructor(
         appScope.launch(start = CoroutineStart.UNDISPATCHED) {
             load()
             while (true) {
+                busy = false
                 requests.receive()
+                busy = true
                 // A failed run is retried after each backoff, or at once on a
                 // newer request, and then waits for the next request.
                 var retries = 0
@@ -203,6 +210,16 @@ class HomeSnapshotRepository @Inject constructor(
     /** Asks the worker for a run; every request made before a run starts becomes that run. */
     fun requestRebuild() {
         requests.trySend(Unit)
+    }
+
+    /**
+     * Asks for a run unless one is pending or going, retries included: for
+     * observations, which ask again at each minute while their inputs aren't
+     * current, so one whose run failed for good gets another. A request
+     * racing the worker's give-up is lost; the next minute asks again.
+     */
+    fun requestRebuildIfIdle() {
+        if (!busy) requestRebuild()
     }
 
     /**
@@ -294,7 +311,10 @@ class HomeSnapshotRepository @Inject constructor(
         // A request made before the run reads anything is answered by it, so
         // a mutation followed by rebuildNow() costs one run, not two. Before
         // the count: rebuildNow() waits for a run counted after its request.
-        requests.tryReceive()
+        // Under the gate's lock: an observation asks at a mutation's bump,
+        // while it holds the lock, and the mutation's own request follows;
+        // both are answered by the run that reads its commit.
+        mutationMutex.withLock { requests.tryReceive() }
         val number = runsStarted.incrementAndGet()
         val published = try {
             build()

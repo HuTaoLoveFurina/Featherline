@@ -401,6 +401,32 @@ class HomeSnapshotRepositoryTest {
     }
 
     @Test
+    fun aMissingPart_isRebuiltByOneRun_whileTheObservationsStartingDuringItAddNone() = runTest {
+        storedInputs = null
+        lateinit var estimates: E2EstimateRepository
+        val pause = pauseNextRead()
+        val repository = repository(estimates = { estimates })
+        estimates = estimates(repository)
+        pause.reached.await()
+
+        // Home and its routes sheet open while the startup run reads.
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            estimates.observeHome(MutableStateFlow(now)).collect {}
+        }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            estimates.observeCalibration(MutableStateFlow(now)).collect {}
+        }
+        runCurrent()
+        pause.release.complete(Unit)
+        repository.currentCache.first { state -> state?.e2Inputs != null }
+        settle()
+
+        assertEquals(1, roomReads.get())
+        assertEquals(1, writtenSnapshots.size)
+        assertEquals(1, writtenInputs.size)
+    }
+
+    @Test
     fun aLoadReadThatThrows_readsAsMissing_andOneRunRebuildsIt() = runTest {
         coEvery { homeSnapshotStore.readSnapshot() } throws IOException("read failed")
         val repository = repository()
@@ -575,6 +601,34 @@ class HomeSnapshotRepositoryTest {
         // The observations' own requests, and any other, try again.
         repository.requestRebuild()
         attempts.first { times -> times.size > 4 }
+    }
+
+    @Test
+    fun requestRebuildIfIdle_addsNothingToARunsRetries_butStartsARunOnceTheyGaveUp() = runTest {
+        val attempts = MutableStateFlow(emptyList<Long>())
+        coEvery { databaseHolder.awaitOpen() } answers {
+            attempts.value = attempts.value + testScheduler.currentTime
+            throw IOException("database open failed")
+        }
+        val repository = repository()
+
+        repository.runHomeDataMutation {}
+        attempts.first { times -> times.size == 1 }
+        // An observation behind the mutation, at its minute: no sooner retry.
+        repository.requestRebuildIfIdle()
+        val times = attempts.first { times -> times.size == 4 }
+        advanceTimeBy(10 * 60_000L)
+        settle()
+        assertEquals(listOf(0L, 1_000L, 6_000L, 36_000L), times.map { time -> time - times.first() })
+        assertEquals(4, attempts.value.size)
+
+        // Given up: the observation's next minute starts a run, which converges.
+        coEvery { databaseHolder.awaitOpen() } returns database
+        repository.requestRebuildIfIdle()
+        repository.currentCache.first { state -> state != null }
+
+        assertEquals(1L, repository.cache.value?.generation)
+        assertEquals(listOf(1L), writtenSnapshots.map { record -> record.generation })
     }
 
     @Test

@@ -130,12 +130,13 @@ class E2EstimateRepository @Inject constructor(
      * load, uses the published inputs and a fresh clock read, and admits a
      * value only when those inputs are current and the memo has their key;
      * otherwise the observation has none until the estimate is derived, and
-     * asks for a run when its first inputs aren't current. Every later minute
-     * is a fresh read too, never [now]'s own value, which can be a cached
-     * minute: behind after a resume, ahead after the clock or the zone moved
-     * back. A value, once shown, is kept while a newer one is pending,
-     * including while a mutation's run hasn't published: that gap is
-     * [E2Pending.USER] too, from the commit, so the hold covers the run.
+     * asks for a run at each state whose inputs aren't current, unless one
+     * is pending or going. Every later minute is a fresh read too, never
+     * [now]'s own value, which can be a cached minute: behind after a
+     * resume, ahead after the clock or the zone moved back. A value, once
+     * shown, is kept while a newer one is pending, including while a
+     * mutation's run hasn't published: that gap is [E2Pending.USER] too,
+     * from the commit, so the hold covers the run.
      */
     fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = observe(
         now = now,
@@ -170,7 +171,6 @@ class E2EstimateRepository @Inject constructor(
     ): Flow<E2State<T>> = flow {
         loaded.await()
         var state = E2State<T>(null)
-        var first = true
         var shownKey: K? = null
         // The generation of the inputs behind the value.
         var shownGeneration = 0L
@@ -190,14 +190,14 @@ class E2EstimateRepository @Inject constructor(
             }
                 .transformLatest { (current, behind, minute) ->
                     val zoneId = ZoneId.systemDefault()
-                    val starting = first
-                    first = false
                     if (current == null) {
                         // Behind a mutation, or missing: nothing to derive
-                        // from until a run publishes current inputs. Only the
-                        // first state asks for one, the retry after a failed
-                        // run; a mutation seen later asks for its own.
-                        if (starting) homeSnapshotRepository.requestRebuild()
+                        // from until a run publishes current inputs. Asks
+                        // for one only while the worker has none pending or
+                        // going, so a start during the mutation's or the
+                        // startup's run adds none; asked again each minute,
+                        // it retries a run that failed for good.
+                        homeSnapshotRepository.requestRebuildIfIdle()
                         // Every gated mutation is a change someone made: a
                         // shown value holds from its commit, through the run.
                         val pending = if (behind && state.value != null) E2Pending.USER else null

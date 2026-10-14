@@ -497,7 +497,11 @@ reads Room to build them.
   estimate. A run a mutation overtook publishes and writes nothing: the
   mutation's own run follows. A run that throws is retried after 1 s,
   5 s and 30 s, or at once on a newer request, and then waits for the
-  next request.
+  next request. From a request's receipt until it waits again, the
+  worker is busy, and `requestRebuildIfIdle()` asks for nothing; a run
+  takes the requests already made under the gate's lock, so one asked
+  for while a mutation holds it is answered by the run that reads its
+  commit.
 - **`cache`.** `HomeSnapshotRepository.cache` holds
   `HomeCacheState(generation, homeData, e2Inputs)`. It is null until the
   disk load, which seeds each part only from a file that is valid at the
@@ -506,9 +510,9 @@ reads Room to build them.
   another. A state is current while its generation equals the durable
   one (`currentCache`, `currentState()`).
 - **Triggers.** A run is asked for by each gated mutation; by the load,
-  when a part is missing; by an estimate observation whose first inputs
-  aren't current; and by a widget refresh without a current state that
-  has both parts. Requests carry nothing: a run reads everything it needs
+  when a part is missing; by an estimate observation whose inputs aren't
+  current, while the worker isn't busy; and by a widget refresh without
+  a current state that has both parts. Requests carry nothing: a run reads everything it needs
   itself. Nothing checks the date or the zone in memory, and no
   in-process ticker watches them: Home data goes invalid by date only
   after ten days, and the date and zone broadcasts ask for the run that
@@ -620,14 +624,17 @@ memo at the next start.
   zone moved back. The first state, after the stored estimate's load,
   uses the published inputs, and has a value only when those inputs are
   current and the memo already holds their key; otherwise the screen
-  shows a skeleton until the estimate is derived, and an observation
-  whose inputs aren't current asks for a run. A running observation
-  keeps its value from a mutation's commit until its run publishes, and
-  while a newer one is derived, and `E2State.pending` says why: `USER`
-  when the inputs' generation is newer than the one behind the value (a
-  committed mutation, its run included), `SYSTEM` otherwise (the clock,
-  midnight, a zone change, a system run), and nothing once the value is
-  settled. The calibration page's section is never stored, so a
+  shows a skeleton until the estimate is derived. An observation whose
+  inputs aren't current asks for a run only while none is pending or
+  going, so one that starts during the startup's or a mutation's run
+  adds none, and asks again each minute while it stays behind, so a
+  mutation whose run failed for good converges in the foreground. A
+  running observation keeps its value from a mutation's commit until its
+  run publishes, and while a newer one is derived, and `E2State.pending`
+  says why: `USER` when the inputs' generation is newer than the one
+  behind the value (a committed mutation, its run included), `SYSTEM`
+  otherwise (the clock, midnight, a zone change, a system run), and
+  nothing once the value is settled. The calibration page's section is never stored, so a
   process's first observation derives it.
 - **The widget.** `widgetEstimate(record, now)` derives the widget's
   curve from the E2 inputs published with the Home data the widget
