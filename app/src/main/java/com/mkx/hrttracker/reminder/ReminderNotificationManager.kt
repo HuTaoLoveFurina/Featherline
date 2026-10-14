@@ -138,6 +138,8 @@ class ReminderNotificationManager @Inject constructor(
                     ),
                 )
             )
+            // The header would show the post time next to the subtext's dose time.
+            .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
