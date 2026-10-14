@@ -5,6 +5,7 @@ import com.mkx.hrttracker.di.DefaultDispatcher
 import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderResult
 import com.mkx.hrttracker.model.pk.PkCalibrationResult
+import com.mkx.hrttracker.model.pk.PkProjectionResult
 import com.mkx.hrttracker.model.pk.resultIdsWith
 import com.mkx.hrttracker.startup.StartupTiming
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
@@ -16,10 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -28,11 +27,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.retryWhen
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -70,8 +65,8 @@ data class CalibrationEstimate(
 )
 
 /**
- * The E2 estimates, derived from the snapshot's inputs and the clock by key.
- * An estimate stands in for a derivation only under the exact key it was
+ * The E2 estimates, derived from the published E2 inputs and the clock by
+ * key. An estimate stands in for a derivation only under the exact key it was
  * derived for, so nothing expires: when the key moves, the estimate is
  * derived again.
  */
@@ -90,6 +85,7 @@ class E2EstimateRepository @Inject constructor(
     // share them, so no key is derived twice. Each guarded by itself.
     private val homeMemo = lastKeys<HomeEstimateKey, Deferred<Derivation<HomeE2Estimate>>>()
     private val calibrationMemo = lastKeys<CalibrationRenderKey, Deferred<Derivation<CalibrationEstimate>>>()
+    private val widgetMemo = lastKeys<WidgetEstimateKey, Deferred<Derivation<PkProjectionResult>>>()
 
     @Volatile
     private var storedKey: HomeEstimateKey? = null
@@ -105,28 +101,6 @@ class E2EstimateRepository @Inject constructor(
     val latestHome: StateFlow<HomeE2Estimate?>
         get() = latestHomeState
     private val latestHomeState = MutableStateFlow<HomeE2Estimate?>(null)
-
-    // Set while the snapshot's reads fail, so a streak is logged once.
-    private var inputsFailing = false
-
-    // The snapshot as observeHomeSnapshot last reported it (null behind the
-    // durable generation), wrapped: null until the first read. Held in
-    // memory, so a restarted observation's first state needs no disk read.
-    private val reported: StateFlow<Reported?> = homeSnapshotRepository.observeHomeSnapshot()
-        .map(::Reported)
-        .onEach { inputsFailing = false }
-        // A failed read (DataStore's own IOException, outside the serializer)
-        // reads as no inputs, so Home's first frame still comes, with the
-        // skeleton, and is retried until the snapshot reads again. appScope
-        // has no handler, so nothing may escape here.
-        .retryWhen { cause, _ ->
-            if (!inputsFailing) diagnosticsLogger.warning(TAG, "home_e2_estimate_inputs_failed", cause)
-            inputsFailing = true
-            emit(Reported(null))
-            delay(INPUTS_RETRY_DELAY_MILLIS)
-            true
-        }
-        .stateIn(appScope, SharingStarted.Eagerly, null)
 
     // The stored estimate seeds the memo before any observation starts, so a
     // match is in the first frame.
@@ -155,14 +129,14 @@ class E2EstimateRepository @Inject constructor(
      * a fresh clock read, not [now]'s cached minute, which can lag on a
      * resume. It admits a value only when those inputs are current and the
      * memo has their key; otherwise it has none until the estimate is
-     * derived, and asks for a rebuild while the inputs aren't current. A
+     * derived, and asks for a run when its first inputs aren't current. A
      * value, once shown, is kept while a newer one is pending, including
-     * while a mutation's snapshot is cleared.
+     * while a mutation's run hasn't published.
      */
     fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = observe(
         now = now,
         keyOf = E2Derivation::homeEstimateKey,
-        derivationOf = { key, record, minute, zoneId -> homeDerivation(key, record.e2Inputs(), minute, zoneId) },
+        derivationOf = { key, inputs, minute, zoneId -> homeDerivation(key, inputs.e2Inputs(), minute, zoneId) },
         onAdmitted = { estimate -> latestHomeState.value = estimate },
     )
 
@@ -177,8 +151,8 @@ class E2EstimateRepository @Inject constructor(
     fun observeCalibration(now: Flow<LocalDateTime>): Flow<E2State<CalibrationEstimate>> = observe(
         now = now,
         keyOf = E2Derivation::calibrationRenderKey,
-        derivationOf = { key, record, minute, zoneId ->
-            calibrationMemo.derivation(key) { deriveCalibration(key, record, minute, zoneId) }
+        derivationOf = { key, inputs, minute, zoneId ->
+            calibrationMemo.derivation(key) { deriveCalibration(key, inputs, minute, zoneId) }
         },
     )
 
@@ -186,12 +160,13 @@ class E2EstimateRepository @Inject constructor(
     private fun <K, T : Any> observe(
         now: Flow<LocalDateTime>,
         keyOf: (E2Inputs, LocalDateTime, ZoneId) -> K,
-        derivationOf: (K, HomeSnapshotRecord, LocalDateTime, ZoneId) -> Deferred<Derivation<T>>,
+        derivationOf: (K, E2InputsRecord, LocalDateTime, ZoneId) -> Deferred<Derivation<T>>,
         onAdmitted: (T) -> Unit = {},
     ): Flow<E2State<T>> = flow {
         loaded.await()
         val start = currentMinute(clock)
         var state = E2State<T>(null)
+        var first = true
         var shownKey: K? = null
         // The generation of the inputs behind the value.
         var shownGeneration = 0L
@@ -200,16 +175,21 @@ class E2EstimateRepository @Inject constructor(
             .onStart { emit(start) }
             .distinctUntilChanged()
         emitAll(
-            combine(reported.filterNotNull(), minutes) { reported, minute -> reported.record to minute }
-                .transformLatest { (record, minute) ->
+            combine(
+                homeSnapshotRepository.cache.filterNotNull(),
+                homeSnapshotRepository.generation,
+                minutes,
+            ) { cache, generation, minute -> cache.e2Inputs?.takeIf { cache.generation == generation } to minute }
+                .transformLatest { (current, minute) ->
                     val zoneId = ZoneId.systemDefault()
-                    val current = record?.takeIf { homeSnapshotRepository.isSnapshotUsable(it, minute, zoneId) }
+                    val starting = first
+                    first = false
                     if (current == null) {
-                        // Behind a mutation, or invalid: nothing to derive
-                        // from until a rebuild publishes current inputs.
-                        if (!homeSnapshotRepository.rebuildInFlight.first()) {
-                            homeSnapshotRepository.refreshHomeSnapshotAsync()
-                        }
+                        // Behind a mutation, or missing: nothing to derive
+                        // from until a run publishes current inputs. Only the
+                        // first state asks for one, the retry after a failed
+                        // run; a mutation seen later asks for its own.
+                        if (starting) homeSnapshotRepository.requestRebuild()
                         state = state.copy(pending = null)
                         emit(state)
                         return@transformLatest
@@ -252,16 +232,15 @@ class E2EstimateRepository @Inject constructor(
      * Derives and stores Home's estimate for the current inputs and a fresh
      * clock read, so the next open shows it in its first frame. Background
      * jobs that move Home's key call it. Inputs that aren't current are left
-     * alone: the rebuild publishing them warms when it lands. Costs a key
+     * alone: the run publishing them warms when it lands. Costs a key
      * when the stored estimate has it already.
      */
     suspend fun warmHome() {
         try {
             loaded.await()
+            val inputs = currentInputs()?.e2Inputs() ?: return
             val now = currentMinute(clock)
             val zoneId = ZoneId.systemDefault()
-            val record = homeSnapshotRepository.readUsableHomeSnapshot(now) ?: return
-            val inputs = record.e2Inputs()
             val key = E2Derivation.homeEstimateKey(inputs, now, zoneId)
             if (key == storedKey) return
             val derived = homeDerivation(key, inputs, now, zoneId).await()
@@ -272,6 +251,34 @@ class E2EstimateRepository @Inject constructor(
         } catch (exception: Exception) {
             diagnosticsLogger.warning(TAG, "home_e2_estimate_warm_up_failed", exception)
         }
+    }
+
+    /**
+     * The widget's seven-day estimate at [now], from [record]: the inputs
+     * published with the Home data the widget shows. Shared through its own
+     * memo, and never stored, since the widget record keeps what the widget
+     * shows. Null when the derivation threw.
+     */
+    suspend fun widgetEstimate(record: E2InputsRecord, now: LocalDateTime): PkProjectionResult? {
+        val inputs = record.e2Inputs()
+        val zoneId = ZoneId.systemDefault()
+        val key = E2Derivation.widgetEstimateKey(inputs, now, zoneId)
+        return widgetMemo.derivation(key) {
+            Derivation(
+                try {
+                    E2Derivation.deriveWidgetEstimate(inputs, now, zoneId)
+                } catch (exception: Exception) {
+                    diagnosticsLogger.warning(TAG, "widget_e2_estimate_failed", exception)
+                    null
+                }
+            )
+        }.await().value
+    }
+
+    /** The E2 inputs once the cache's disk load is done, while they are current; null otherwise. */
+    private suspend fun currentInputs(): E2InputsRecord? {
+        val cache = homeSnapshotRepository.cache.filterNotNull().first()
+        return cache.e2Inputs?.takeIf { cache.generation == homeSnapshotRepository.generation.value }
     }
 
     private fun homeDerivation(
@@ -325,7 +332,7 @@ class E2EstimateRepository @Inject constructor(
 
     private fun deriveCalibration(
         key: CalibrationRenderKey,
-        record: HomeSnapshotRecord,
+        record: E2InputsRecord,
         now: LocalDateTime,
         zoneId: ZoneId,
     ): Derivation<CalibrationEstimate> {
@@ -369,8 +376,8 @@ class E2EstimateRepository @Inject constructor(
             writeMutex.withLock {
                 if (record.key == storedKey) return
                 val now = currentMinute(clock)
-                val current = homeSnapshotRepository.readUsableHomeSnapshot(now)
-                    ?.let { snapshot -> E2Derivation.homeEstimateKey(snapshot.e2Inputs(), now, ZoneId.systemDefault()) }
+                val current = currentInputs()
+                    ?.let { inputs -> E2Derivation.homeEstimateKey(inputs.e2Inputs(), now, ZoneId.systemDefault()) }
                 if (current != record.key) {
                     diagnosticsLogger.info(TAG, "home_e2_estimate_write_skipped reason=key_moved")
                     return
@@ -385,21 +392,19 @@ class E2EstimateRepository @Inject constructor(
         }
     }
 
-    private class Reported(val record: HomeSnapshotRecord?)
-
     /**
-     * One derivation. Home's has a null [value] when it threw; the calibration
-     * page's always has one, the numeric failure when its render threw. Not
-     * [storable] when Home's, or its band render, threw: such a result is kept
-     * in the memo, so it isn't derived again on every tick, but never stored,
-     * so a restart tries again. Only Home's estimate is ever stored.
+     * One derivation. Home's and the widget's have a null [value] when they
+     * threw; the calibration page's always has one, the numeric failure when
+     * its render threw. Not [storable] when Home's, or its band render,
+     * threw: such a result is kept in the memo, so it isn't derived again on
+     * every tick, but never stored, so a restart tries again. Only Home's
+     * estimate is ever stored.
      */
     private class Derivation<T>(val value: T?, val storable: Boolean = false)
 
     private companion object {
         const val TAG = "E2EstimateRepository"
         const val MEMO_SIZE = 2
-        const val INPUTS_RETRY_DELAY_MILLIS = 1_000L
 
         /** Access-ordered: keeps the [MEMO_SIZE] keys used last. */
         fun <K, V> lastKeys(): MutableMap<K, V> = object : LinkedHashMap<K, V>(4, 0.75f, true) {
@@ -408,11 +413,11 @@ class E2EstimateRepository @Inject constructor(
     }
 }
 
-/** What the snapshot's E2 estimates are derived from. */
-internal fun HomeSnapshotRecord.e2Inputs() = E2Inputs(
-    estradiolEntries = pkEntries,
-    plannedSources = activeGroups,
-    weightKg = userProfile?.weightKg,
+/** What the record's E2 estimates are derived from. */
+internal fun E2InputsRecord.e2Inputs() = E2Inputs(
+    estradiolEntries = estradiolEntries,
+    plannedSources = plannedSources,
+    weightKg = weightKg,
     option = option,
     fit = fit,
 )

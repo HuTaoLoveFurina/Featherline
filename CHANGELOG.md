@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - After a planned dose's time passes, opening the app no longer shows an estradiol curve that looks like the population estimate, or the calibrated curve without its prediction interval. Home now works the estimate out again whenever the time, your data or the chart window moves it, usually in the background before you open the app.
+- The home-screen widget no longer goes blank when you change a widget setting, such as its appearance or the estradiol unit, while the app's saved copy of your data is out of date, for example right after an app update or a time zone change. It keeps showing your doses while the app brings them up to date.
 
 ### Changed
 
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The calibration page follows the same rule as Home. Edits that can't change the estimate, such as editing a result's notes, adding a result without an estradiol value or recounting stock, no longer show the refresh indicator or hold the Estimate calibration section. After adding or reviewing an estradiol result, the indicator appears a moment after the tap, once the new data is ready. Coming back to the page after the estimate has moved, for example after midnight, can show the loading indicator for a moment.
 - The app no longer works out your estimate calibration again each time it starts or you change something. It does so only when something the calibration uses changes: your estradiol results or how you reviewed them, your estradiol doses or your weight, or when you tap Try again.
 - The Estimate calibration section and the estimate sheet on Home now use the same estradiol doses as the Home chart, with days that start at midnight like it, so where they overlap they show the same band. Near the ends of the calibration page's range, its estimate can differ very slightly from before.
+- The first time you open the app after this update, Home's lists take a moment longer to appear, and the estradiol card shows a loading placeholder until the estimate is worked out. This happens once.
 
 ## [1.4.2] - 2026-10-14
 

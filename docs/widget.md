@@ -25,10 +25,10 @@ sequenceDiagram
   participant Launcher
 
   App->>Manager: start()
-  Manager-->>HomeRepo: observeHomeSnapshot().filterNotNull()
-  HomeRepo-->>Manager: HomeSnapshotRecord
-  Manager->>WidgetRepo: writeWidgetSnapshot(homeSnapshot)
-  WidgetRepo->>Builder: buildWidgetSnapshotRecord(home, settings, now)
+  Manager-->>HomeRepo: currentCache, current states only
+  HomeRepo-->>Manager: HomeCacheState (Home data + E2 inputs)
+  Manager->>WidgetRepo: writeWidgetSnapshot(state), both parts only
+  WidgetRepo->>Builder: buildWidgetSnapshotRecord(homeData, widgetEstimate(e2Inputs, now), settings, now)
   Builder-->>WidgetRepo: WidgetSnapshotRecord
   WidgetRepo->>Store: writeSnapshot(record)
   WidgetRepo->>Glance: pushHrtWidgets(record) — GlanceRemoteViews.compose
@@ -69,9 +69,11 @@ snapshot's `archivedGroups`) also surface as rows, flagged
 trailing area.
 `medicationUuid` is the per-group slot id (`MedicationGroupMedication.uuid`)
 — the slot itself now FKs to a catalog `Medicine` via `medicineUuid`,
-which the widget does not carry. The PK projection is forwarded verbatim
-from the home snapshot as a `WidgetPkProjectionRecord` so the widget can
-render an E2 estimate without re-simulating.
+which the widget does not carry. The PK projection is the seven-day
+estimate `E2EstimateRepository.widgetEstimate` derives, when the record
+is built, from the E2 inputs published with the Home data, stored as a
+`WidgetPkProjectionRecord` so the widget can render it without
+re-simulating.
 
 Manual (off-schedule) log entries take a separate path
 (`toManualWidgetDoseRow`); they intentionally land with
@@ -324,7 +326,7 @@ funnelled through `WidgetSnapshotRepository`:
 
 ```mermaid
 graph TD
-  homesnapshot[HomeSnapshotRepository<br/>.observeHomeSnapshot] --> manager
+  homesnapshot[HomeSnapshotRepository<br/>.currentCache] --> manager
   settings[SettingsRepository<br/>.settingsState] --> manager
   timeformat[Settings.System.TIME_12_24<br/>ContentObserver] --> manager
   midnight[WidgetMidnightRefreshScheduler<br/>explicit midnight alarm] --> datereceiver
@@ -341,13 +343,15 @@ graph TD
 - **Home-data changes.**
   [`HomeWidgetManager`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/widget/HomeWidgetManager.kt)
   is a Hilt `@Singleton` started from `HrtTrackerApplication`. It
-  subscribes to `homeSnapshotRepository.observeHomeSnapshot()` with
-  `filterNotNull()` and calls
-  `widgetSnapshotRepository.writeWidgetSnapshot(snapshot)` on every
-  non-null emission. The `filterNotNull` is load-bearing: every
-  `runHomeDataMutation` briefly clears the home snapshot before
-  rebuilding it, and propagating those nulls would cause a "no
-  medications" flash on the widget after every quick-log tap.
+  subscribes to `homeSnapshotRepository.currentCache` and calls
+  `widgetSnapshotRepository.writeWidgetSnapshot(state)` for every
+  current state the rebuild worker publishes. It writes only a state
+  with both parts: the rows from its Home data, the estimate that
+  `E2EstimateRepository.widgetEstimate` derives from the E2 inputs
+  published with them. From a mutation until its run publishes there is
+  no current state, and while a part is missing nothing is written: the
+  widget keeps its last snapshot, estimate included, and is never
+  cleared for that.
 - **Widget-facing settings changes.** The same manager observes
   `settingsRepository.settingsState`, projects it to the tuple
   (`hideMedicationDetails`, `adaptiveColorEnabled`,
@@ -355,8 +359,10 @@ graph TD
   `showArchivedGroupRecords`),
   `distinctUntilChanged().drop(1)`, and calls
   `refreshWidgetSnapshot()`. This re-derives the widget snapshot from
-  the current home snapshot without forcing a home rebuild — the home
-  snapshot itself is unchanged when only widget-only inputs change.
+  the current state without a home rebuild — Home data itself is
+  unchanged when only widget-only inputs change. Unless the current
+  state has both parts, it asks the worker for a run and leaves the
+  widget as it is.
 - **Appearance changes.** The manager also collects the appearance
   store's change flow (`drop(1)` to skip the initial emission) into the
   same `refreshWidgetSnapshot()` seat. On startup, before collecting,
@@ -370,11 +376,10 @@ graph TD
   whether the snapshot's `anchorDateEpochDay` is before today's date,
   whether the PK projection has expired, or whether any row's
   `UPCOMING`/`DUE_SOON` status should have transitioned by `now`. If
-  any of those are true it calls
-  `homeSnapshotRepository.refreshHomeSnapshotIfNeeded(force = true, silent = true)`
-  — forced past the usable-snapshot check; it carries no newer generation,
-  so Home shows no updating indicator — which routes back into the
-  home-snapshot observer above. Otherwise it
+  any of those are true it waits for `homeSnapshotRepository.rebuildNow()`,
+  so the job, and the process with it, outlive the run; the run carries
+  no newer generation, so Home shows no updating indicator, and its
+  publish routes back into the cache observer above. Otherwise it
   just calls `updateAllHrtWidgets` to re-render against the existing
   snapshot.
 - **Date / time / timezone events.**
@@ -388,8 +393,9 @@ graph TD
   [`WidgetMidnightRefreshScheduler`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/widget/WidgetMidnightRefreshScheduler.kt)
   for the next local midnight. A reboot clears that exact alarm, so the
   receiver re-arms it on every delivery — including `BOOT_COMPLETED` —
-  and uses `goAsync()` to force a home refresh, again leaning on the
-  snapshot observer to fan out.
+  and, under `goAsync()`, waits for `rebuildNow()` within its budget,
+  again leaning on the cache observer to fan out; out of budget, the
+  run carries on in the app scope.
 - **12-/24-hour preference toggles.** Android does not broadcast when
   the user flips `Settings.System.TIME_12_24`, but the widget snapshot
   carries pre-formatted trailing-time strings whose 12-/24-hour shape
@@ -405,8 +411,8 @@ Two render paths exist in
 - **`pushHrtWidgets(context, record)`** — composes a one-shot
   `RemoteViews` per widget via `GlanceRemoteViews().compose(...)` and pushes
   it with `AppWidgetManager.updateAppWidget`. Used by `writeWidgetSnapshot`
-  after every persist (and `clearWidgetSnapshot` with a `null` record for
-  the empty state). It bypasses Glance's session, whose frame-clock-driven
+  after every persist (and by `updateAllHrtWidgets`, whose `null` read
+  renders the empty state). It bypasses Glance's session, whose frame-clock-driven
   recomposition stalls while the app is backgrounded (so an off-screen
   settings change applies immediately) and, on a foregrounded tap, briefly
   paints the `initialLayout` loading spinner during session spin-up. After

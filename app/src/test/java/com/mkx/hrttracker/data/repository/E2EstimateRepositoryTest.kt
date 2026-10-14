@@ -9,7 +9,6 @@ import com.mkx.hrttracker.model.medication.MedicinePreparation
 import com.mkx.hrttracker.model.medication.testMedicationGroupMedication
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
-import com.mkx.hrttracker.model.personalization.UserProfile
 import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
 import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
@@ -17,7 +16,6 @@ import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationLab
 import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
 import com.mkx.hrttracker.model.pk.PkCalibrationRenderer
-import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -26,13 +24,11 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -45,7 +41,6 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.io.IOException
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -109,17 +104,14 @@ class E2EstimateRepositoryTest {
             }
             .filter { entry -> entry.scheduledFor!!.isBefore(beforeSlot) }
 
-    private val records = MutableStateFlow<HomeSnapshotRecord?>(null)
+    // What the worker published, after the disk load found nothing valid,
+    // and the durable generation.
+    private val cache = MutableStateFlow<HomeCacheState?>(HomeCacheState(0L, homeData = null, e2Inputs = null))
     private val generation = MutableStateFlow(0L)
-    private val homeSnapshotStore: HomeSnapshotStore = mockk {
-        every { observeSnapshot() } returns records
-        coEvery { readSnapshot() } answers { records.value }
+    private val homeSnapshotRepository: HomeSnapshotRepository = mockk(relaxed = true) {
+        every { cache } returns this@E2EstimateRepositoryTest.cache
+        every { generation } returns this@E2EstimateRepositoryTest.generation
     }
-    private val generationStore: HomeSnapshotGenerationStore = mockk {
-        every { observeGeneration() } returns generation
-        coEvery { readGeneration() } answers { generation.value }
-    }
-    private val snapshotLogger: AppDiagnosticsLogger = mockk(relaxed = true)
 
     private var stored: HomeE2EstimateRecord? = null
     private var writes = 0
@@ -155,7 +147,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun coldStart_withAStoredMatch_showsItInTheFirstState_withoutDeriving() = runTest {
-        records.value = record()
+        publish(record())
         stored = storedFor(record(), beforeSlot)
         val estimates = estimates()
 
@@ -170,7 +162,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun coldStart_withoutAMatch_hasNoValueUntilDerived_thenStoresIt() = runTest {
-        records.value = record()
+        publish(record())
         // Stored before the slot passed: its planned doses no longer match.
         stored = storedFor(record(), beforeSlot)
         setNow(afterSlot)
@@ -198,16 +190,14 @@ class E2EstimateRepositoryTest {
 
         assertEquals(listOf(E2State<HomeE2Estimate>(null)), states.distinct())
         assertEquals(0, derivations)
-        verify {
-            snapshotLogger.info("HomeSnapshotRepository", match { it.startsWith("home_snapshot_refresh_async_enqueued") })
-        }
+        verify { homeSnapshotRepository.requestRebuild() }
     }
 
     @Test
     fun theFirstState_readsTheWallClock_notTheCachedMinute() = runTest {
         // On a resume the minute flow can still hold the time the app left
         // at, from before the slot passed, when the stored estimate matched.
-        records.value = record()
+        publish(record())
         stored = storedFor(record(), beforeSlot)
         clock.instant = afterSlot.atZone(zoneId).toInstant()
         val estimates = estimates()
@@ -222,7 +212,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun aRestart_withAMovedKeyHasNoValue_andWithAMatchingKeyHasItAtOnce() = runTest {
-        records.value = record()
+        publish(record())
         val estimates = estimates()
         val first = observe(estimates)
         runCurrent()
@@ -247,36 +237,60 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun inputsBehindAMutation_areNeverAdmitted_whileARunningObservationKeepsItsValue() = runTest {
-        records.value = record()
+        publish(record())
         stored = storedFor(record(), beforeSlot)
         val estimates = estimates()
         val running = observe(estimates)
         runCurrent()
         val shown = checkNotNull(running.last().value)
 
-        // A mutation commits while its rebuild is paused (or fails): the old
-        // record and the stored estimate still match each other, but the
-        // record is behind the durable generation.
+        // A mutation commits while its run is paused (or fails): the old
+        // inputs and the stored estimate still match each other, but the
+        // inputs are behind the durable generation.
         generation.value = 1L
         runCurrent()
         assertSame(shown, running.last().value)
         assertNull(running.last().pending)
 
-        // A screen coming to the foreground meanwhile shows the skeleton.
+        // A screen coming to the foreground meanwhile shows the skeleton, and
+        // asks for a run.
         val returned = observe(estimates)
         runCurrent()
         assertTrue(returned.all { state -> state.value == null })
-        // Its clear doesn't change that either.
-        records.value = null
-        runCurrent()
+        verify(exactly = 1) { homeSnapshotRepository.requestRebuild() }
         assertSame(shown, running.last().value)
-        assertTrue(returned.all { state -> state.value == null })
         assertEquals(0, derivations)
     }
 
     @Test
+    fun onlyAnObservationThatStartsBehind_asksForARun_andOnlyOnce() = runTest {
+        publish(record())
+        val estimates = estimates()
+        val running = observe(estimates)
+        runCurrent()
+
+        // A mutation the running observation sees asks for its own run.
+        generation.value = 1L
+        runCurrent()
+        setNow(beforeSlot.plusMinutes(1))
+        runCurrent()
+        verify(exactly = 0) { homeSnapshotRepository.requestRebuild() }
+
+        // One that starts behind asks once, the retry after a failed run, and
+        // not again on each tick.
+        observe(estimates)
+        runCurrent()
+        setNow(beforeSlot.plusMinutes(2))
+        runCurrent()
+        setNow(beforeSlot.plusMinutes(3))
+        runCurrent()
+        verify(exactly = 1) { homeSnapshotRepository.requestRebuild() }
+        assertNotNull(running.last().value)
+    }
+
+    @Test
     fun pending_isUser_forNewerInputsFromAChange_andSystem_forTheClock() = runTest {
-        records.value = record()
+        publish(record())
         val estimates = estimates()
         val states = observe(estimates)
         runCurrent()
@@ -285,7 +299,7 @@ class E2EstimateRepositoryTest {
         // Logging a dose: a gated change, so the next record's generation is newer.
         val withDose = logged + dose(today.minusDays(1).atTime(12, 0))
         generation.value = 1L
-        records.value = record(generation = 1L, logged = withDose)
+        publish(record(generation = 1L, logged = withDose))
         runCurrent()
         val afterLog = checkNotNull(states.last().value)
         val userTransition = states.dropWhile { state -> state.value !== initial || state.pending == null }
@@ -302,7 +316,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun aChangeTheEstimateDoesntRead_hasNothingPending() = runTest {
-        records.value = record()
+        publish(record())
         val estimates = estimates()
         val states = observe(estimates)
         runCurrent()
@@ -311,7 +325,7 @@ class E2EstimateRepositoryTest {
 
         // A stock recount: a gated change whose E2 inputs are the same.
         generation.value = 1L
-        records.value = record(generation = 1L).copy(stockMedicines = listOf(estradiol))
+        publish(record(generation = 1L))
         runCurrent()
         assertEquals(before, states.size)
         assertSame(shown, states.last().value)
@@ -325,7 +339,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun observers_shareInFlightDerivations_andTheMemoKeepsTheLastTwoKeys() = runTest {
-        records.value = record(weightKg = 60.0)
+        publish(record(weightKg = 60.0))
         val estimates = estimates()
         val home = observe(estimates)
         val settings = observe(estimates)
@@ -334,17 +348,17 @@ class E2EstimateRepositoryTest {
         assertEquals(1, derivations)
         assertSame(home.last().value, settings.last().value)
 
-        records.value = record(weightKg = 61.0)
+        publish(record(weightKg = 61.0))
         runCurrent()
-        records.value = record(weightKg = 62.0)
+        publish(record(weightKg = 62.0))
         runCurrent()
         assertEquals(3, derivations)
 
         // 60 kg was the eldest of three: derived again. 62 kg is kept.
-        records.value = record(weightKg = 60.0)
+        publish(record(weightKg = 60.0))
         runCurrent()
         assertEquals(4, derivations)
-        records.value = record(weightKg = 62.0)
+        publish(record(weightKg = 62.0))
         runCurrent()
         assertEquals(4, derivations)
     }
@@ -355,7 +369,7 @@ class E2EstimateRepositoryTest {
             derivations++
             throw IllegalStateException("simulation")
         }
-        records.value = record()
+        publish(record())
         val estimates = estimates()
         val states = observe(estimates)
         runCurrent()
@@ -383,7 +397,7 @@ class E2EstimateRepositoryTest {
                 statusRange = any(),
             )
         } throws IllegalStateException("render")
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
 
         val states = observe(estimates)
@@ -399,7 +413,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun theWriter_neverStoresAnEstimateWhoseKeyMovedWhileItWasDerived() = runTest {
-        records.value = record()
+        publish(record())
         // A slow derivation: the slot passes before it lands.
         every { E2Derivation.deriveHomeEstimate(any(), any(), any(), any()) } answers {
             derivations++
@@ -426,14 +440,14 @@ class E2EstimateRepositoryTest {
         // The build's solve failed: the population estimate is shown and
         // stored. Try again re-solves with a new epoch.
         val failed = E2FitRecord(solvedFit(epoch = 0).fitId, epoch = 0, outcome = FitOutcome.Failed)
-        records.value = record(fit = failed)
+        publish(record(fit = failed))
         val estimates = estimates()
         val states = observe(estimates)
         runCurrent()
         assertNull(checkNotNull(states.last().value).calibration)
 
         generation.value = 1L
-        records.value = record(generation = 1L, fit = solvedFit(epoch = 1))
+        publish(record(generation = 1L, fit = solvedFit(epoch = 1)))
         runCurrent()
 
         assertEquals(2, derivations)
@@ -461,7 +475,7 @@ class E2EstimateRepositoryTest {
         } answers {
             if (renders++ == 0) throw IllegalStateException("render") else callOriginal()
         }
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
         val states = observe(estimates)
         runCurrent()
@@ -469,7 +483,7 @@ class E2EstimateRepositoryTest {
         assertEquals(0, writes)
 
         generation.value = 1L
-        records.value = record(generation = 1L, fit = solvedFit(epoch = 1))
+        publish(record(generation = 1L, fit = solvedFit(epoch = 1)))
         runCurrent()
 
         assertEquals(2, derivations)
@@ -479,7 +493,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun warmHome_storesHomesKey_andAColdStartRightAfterShowsIt() = runTest {
-        records.value = record()
+        publish(record())
         val estimates = estimates()
 
         backgroundScope.launch { estimates.warmHome() }
@@ -493,7 +507,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun warmHome_leavesInputsThatArentCurrent_alone() = runTest {
-        records.value = record()
+        publish(record())
         generation.value = 1L
         val estimates = estimates()
 
@@ -506,7 +520,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun warmHome_withAnUnchangedKey_onlyComputesTheKey_andAfterASlotPassesDerivesOnce() = runTest {
-        records.value = record()
+        publish(record())
         stored = storedFor(record(), beforeSlot)
         val estimates = estimates()
 
@@ -526,6 +540,28 @@ class E2EstimateRepositoryTest {
     }
 
     @Test
+    fun widgetEstimate_isDerivedFromTheInputsItIsGiven_sharedByKey_andNeverStored() = runTest {
+        var widgetDerivations = 0
+        every { E2Derivation.deriveWidgetEstimate(any(), any(), any()) } answers {
+            widgetDerivations++
+            callOriginal()
+        }
+        val estimates = estimates()
+
+        // Logged doses only: the slot passing between the two doesn't move
+        // the widget's key, so they share one derivation.
+        val before = async { estimates.widgetEstimate(record(), beforeSlot) }
+        val after = async { estimates.widgetEstimate(record(), afterSlot) }
+        val shown = checkNotNull(before.await())
+        assertSame(shown, after.await())
+        assertEquals(1, widgetDerivations)
+        assertEquals(0, writes)
+        assertEquals(E2Derivation.deriveWidgetEstimate(record().e2Inputs(), beforeSlot, zoneId), shown)
+        // From the record it is handed, whatever the cache holds.
+        assertNotEquals(shown, estimates.widgetEstimate(record(weightKg = 80.0), beforeSlot))
+    }
+
+    @Test
     fun aFailedUserDerivation_leavesTheNextClockChangeToTheSystem() = runTest {
         val extra = dose(today.minusDays(1).atTime(12, 0))
         every { E2Derivation.deriveHomeEstimate(any(), any(), any(), any()) } answers {
@@ -533,7 +569,7 @@ class E2EstimateRepositoryTest {
             if (extra in firstArg<E2Inputs>().estradiolEntries) throw IllegalStateException("simulation")
             callOriginal()
         }
-        records.value = record()
+        publish(record())
         val estimates = estimates()
         val states = observe(estimates)
         runCurrent()
@@ -541,7 +577,7 @@ class E2EstimateRepositoryTest {
 
         // A logged dose whose estimate fails: the value stays, nothing pending.
         generation.value = 1L
-        records.value = record(generation = 1L, logged = logged + extra)
+        publish(record(generation = 1L, logged = logged + extra))
         runCurrent()
         assertEquals(E2State(shown, null), states.last())
         assertTrue(E2State(shown, E2Pending.USER) in states)
@@ -554,30 +590,8 @@ class E2EstimateRepositoryTest {
     }
 
     @Test
-    fun aSnapshotReadThatFails_isRetried_andLaterRecordsReachTheObservation() = runTest {
-        // DataStore's IOException comes from outside the serializer, and would
-        // otherwise end the inputs for the process's lifetime.
-        var reads = 0
-        every { homeSnapshotStore.observeSnapshot() } returns flow {
-            if (reads++ == 0) throw IOException("read")
-            emitAll(records)
-        }
-        records.value = record()
-        val estimates = estimates()
-
-        val states = observe(estimates)
-        runCurrent()
-        assertTrue(states.all { state -> state.value == null })
-
-        advanceTimeBy(1_001L)
-        runCurrent()
-        assertNotNull(states.last().value)
-        assertEquals(1, derivations)
-    }
-
-    @Test
     fun latestHome_isSeededFromTheStoredEstimate_andFollowsWhatAnObservationAdmits() = runTest {
-        records.value = record()
+        publish(record())
         stored = storedFor(record(), beforeSlot)
         val estimates = estimates()
         val seed = checkNotNull(stored).estimate
@@ -597,7 +611,7 @@ class E2EstimateRepositoryTest {
 
         // A derivation updates it too.
         generation.value = 1L
-        records.value = record(generation = 1L, weightKg = 70.0)
+        publish(record(generation = 1L, weightKg = 70.0))
         runCurrent()
         assertSame(states.last().value, estimates.latestHome.value)
         assertEquals(2, derivations)
@@ -605,7 +619,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun latestHome_isNotTakenBackByAWarmUpForAnOlderKey() = runTest {
-        records.value = record()
+        publish(record())
         setNow(afterSlot)
         val estimates = estimates()
         val states = observe(estimates)
@@ -625,7 +639,7 @@ class E2EstimateRepositoryTest {
     fun calibration_coldStart_hasNoValueUntilDerived_andARestartWithAMatchHasItAtOnce() = runTest {
         // Never stored, so a process's first observation derives it; later
         // ones (the page again, the editor, Home's sheet) share it.
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
 
         val first = observeCalibration(estimates)
@@ -645,7 +659,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun calibration_aRestart_afterTheKeyMoved_hasNoValue_untilItIsDerived() = runTest {
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
         val first = observeCalibration(estimates)
         runCurrent()
@@ -663,7 +677,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun calibration_pending_isUser_forAReview_andSystem_forMidnight() = runTest {
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
         val states = observeCalibration(estimates)
         runCurrent()
@@ -672,7 +686,7 @@ class E2EstimateRepositoryTest {
         // Accepting a lab: a gated change whose re-solved fit moves the key.
         val review = listOf(E2CalibrationMetadata(fitLabs.first().resultId, E2CalibrationDisposition.REVIEWED, Instant.EPOCH))
         generation.value = 1L
-        records.value = record(generation = 1L, fit = solvedFit(epoch = 0, metadata = review), labMetadata = review)
+        publish(record(generation = 1L, fit = solvedFit(epoch = 0, metadata = review), labMetadata = review))
         runCurrent()
         val reviewed = checkNotNull(states.last().value)
         val userTransition = states.dropWhile { state -> state.value !== initial || state.pending == null }
@@ -690,7 +704,7 @@ class E2EstimateRepositoryTest {
 
     @Test
     fun calibration_aChangeTheEstimateDoesntRead_hasNothingPending() = runTest {
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
         val states = observeCalibration(estimates)
         runCurrent()
@@ -700,7 +714,7 @@ class E2EstimateRepositoryTest {
         // A stock recount, its stored fit reused; then the morning slot
         // passing, which moves Home's key but not the page's.
         generation.value = 1L
-        records.value = record(generation = 1L, fit = solvedFit(epoch = 0)).copy(stockMedicines = listOf(estradiol))
+        publish(record(generation = 1L, fit = solvedFit(epoch = 0)))
         runCurrent()
         setNow(afterSlot)
         runCurrent()
@@ -716,7 +730,7 @@ class E2EstimateRepositoryTest {
             calibrationRenders++
             throw IllegalStateException("render")
         }
-        records.value = record(fit = solvedFit(epoch = 0))
+        publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
         val first = observeCalibration(estimates)
         runCurrent()
@@ -757,7 +771,7 @@ class E2EstimateRepositoryTest {
             epoch = 0,
             outcome = FitOutcome.Solved(PkCalibrationEngine.evaluate(input).result, input.originEpochMillis),
         )
-        records.value = record(fit = fit, labs = labs, labMetadata = metadata)
+        publish(record(fit = fit, labs = labs, labMetadata = metadata))
         val estimates = estimates()
 
         val states = observeCalibration(estimates)
@@ -780,19 +794,8 @@ class E2EstimateRepositoryTest {
 
     private fun TestScope.estimates(): E2EstimateRepository {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        lateinit var estimates: E2EstimateRepository
-        val snapshots = HomeSnapshotRepository(
-            databaseHolder = mockk(),
-            homeSnapshotStore = homeSnapshotStore,
-            homeSnapshotGenerationStore = generationStore,
-            settingsRepository = mockk(relaxed = true),
-            e2EstimateRepository = { estimates },
-            appScope = backgroundScope,
-            defaultDispatcher = dispatcher,
-            diagnosticsLogger = snapshotLogger,
-        )
-        estimates = E2EstimateRepository(
-            homeSnapshotRepository = snapshots,
+        val estimates = E2EstimateRepository(
+            homeSnapshotRepository = homeSnapshotRepository,
             store = estimateStore,
             clock = clock,
             appScope = backgroundScope,
@@ -836,27 +839,28 @@ class E2EstimateRepositoryTest {
         fit: E2FitRecord? = null,
         labs: List<PkCalibrationLab> = emptyList(),
         labMetadata: List<E2CalibrationMetadata> = emptyList(),
-    ) = HomeSnapshotRecord(
-        schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
+    ) = E2InputsRecord(
         generation = generation,
-        generatedAtEpochMillis = 0L,
         anchorDateEpochDay = today.toEpochDay(),
         zoneId = zoneId.id,
-        activeGroups = listOf(group),
-        scheduleEntries = emptyList(),
-        antiandrogenHistoryEntries = emptyList(),
-        userProfile = UserProfile(weightKg = weightKg),
-        pkEntries = logged,
         option = HomeE2ChartWindowOption.SEVEN_DAYS,
-        fit = fit,
+        weightKg = weightKg,
+        estradiolEntries = logged,
+        plannedSources = listOf(group),
         labs = labs,
         labMetadata = labMetadata,
+        fit = fit,
     )
 
-    private fun keyAt(record: HomeSnapshotRecord, now: LocalDateTime): HomeEstimateKey =
+    /** A run's publish: its E2 inputs, at their generation. */
+    private fun publish(inputs: E2InputsRecord) {
+        cache.value = HomeCacheState(inputs.generation, homeData = null, e2Inputs = inputs)
+    }
+
+    private fun keyAt(record: E2InputsRecord, now: LocalDateTime): HomeEstimateKey =
         E2Derivation.homeEstimateKey(record.e2Inputs(), now, zoneId)
 
-    private fun storedFor(record: HomeSnapshotRecord, now: LocalDateTime): HomeE2EstimateRecord {
+    private fun storedFor(record: E2InputsRecord, now: LocalDateTime): HomeE2EstimateRecord {
         val inputs = record.e2Inputs()
         return storedEstimates.getOrPut(keyAt(record, now)) {
             HomeE2EstimateRecord(

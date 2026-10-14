@@ -37,7 +37,7 @@ class MedicationReminderActionReceiverTest {
         // A killed process after the finish used to leave Home without a
         // snapshot or an estimate for the next open.
         val rebuilt = CompletableDeferred<Unit>()
-        coEvery { homeSnapshotRepository.awaitRebuild() } coAnswers { rebuilt.await() }
+        coEvery { homeSnapshotRepository.rebuildNow() } coAnswers { rebuilt.await() }
 
         logNow()
         runCurrent()
@@ -51,7 +51,7 @@ class MedicationReminderActionReceiverTest {
 
     @Test
     fun logNow_finishesWhenTheBudgetRunsOut() = runTest {
-        coEvery { homeSnapshotRepository.awaitRebuild() } coAnswers { awaitCancellation() }
+        coEvery { homeSnapshotRepository.rebuildNow() } coAnswers { awaitCancellation() }
 
         logNow()
         runCurrent()

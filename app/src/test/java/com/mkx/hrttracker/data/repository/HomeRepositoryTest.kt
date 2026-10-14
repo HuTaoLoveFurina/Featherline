@@ -31,7 +31,9 @@ import com.mkx.hrttracker.model.medication.RunwayProjection
 import com.mkx.hrttracker.model.medication.testMedicine
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
+import com.mkx.hrttracker.util.FakeAppTimeSource
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -357,7 +359,7 @@ class HomeRepositoryTest {
     }
 
     @Test
-    fun observeHomeSnapshotInputs_readsFullSnapshotWithoutOpeningDatabase() = runTest {
+    fun observeHomeSnapshotInputs_takesTheFirstFrameFromTheLoadedCache_withoutOpeningDatabase() = runTest {
         val now = LocalDateTime.of(2026, 5, 6, 10, 15)
         val zoneId = ZoneId.systemDefault()
         val settings = SettingsState(homeE2DisplayUnit = BloodUnitKey.NG_DL)
@@ -391,8 +393,18 @@ class HomeRepositoryTest {
             latestEstradiolEntry = pkEntry.toMedicationLogEntryModel(medicinesByUuid),
         )
 
-        every { homeSnapshotStore.observeSnapshot() } returns flowOf(snapshot)
-        every { homeSnapshotGenerationStore.observeGeneration() } returns MutableStateFlow(0L)
+        // Valid at the durable generation, the date and the zone, as the
+        // last run wrote them: the load seeds the cache, and no run is asked for.
+        coEvery { homeSnapshotStore.readSnapshot() } returns snapshot
+        coEvery { homeSnapshotStore.readE2Inputs() } returns E2InputsRecord(
+            generation = 0L,
+            anchorDateEpochDay = snapshot.anchorDateEpochDay,
+            zoneId = snapshot.zoneId,
+            option = settings.homeE2ChartWindowOption,
+            weightKg = null,
+            estradiolEntries = emptyList(),
+            plannedSources = emptyList(),
+        )
         coEvery { homeSnapshotGenerationStore.readGeneration() } returns 0L
         every { settingsRepository.settingsState } returns MutableStateFlow(settings)
         every {
@@ -405,6 +417,7 @@ class HomeRepositoryTest {
             homeSnapshotGenerationStore = homeSnapshotGenerationStore,
             settingsRepository = settingsRepository,
             e2EstimateRepository = { mockk() },
+            appTimeSource = FakeAppTimeSource(now),
             appScope = backgroundScope,
             defaultDispatcher = dispatcher,
         )
@@ -431,6 +444,7 @@ class HomeRepositoryTest {
         assertEquals(BloodUnitKey.NG_DL, inputs.settings.homeE2DisplayUnit)
 
         verify(exactly = 0) { databaseHolder.get() }
+        coVerify(exactly = 0) { databaseHolder.awaitOpen() }
     }
 
     @Test
@@ -467,14 +481,7 @@ class HomeRepositoryTest {
 
         every { settingsRepository.settingsState } returns MutableStateFlow(settings)
         every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(snapshot)
-        every {
-            homeSnapshotRepository.isSnapshotUsable(
-                snapshot = snapshot,
-                now = now,
-                zoneId = providedZone,
-            )
-        } returns true
+        every { homeSnapshotRepository.currentCache } returns flowOf(HomeCacheState(0L, snapshot, e2Inputs = null))
         every {
             homeSnapshotRepository.scheduleEntriesForHome(
                 snapshot = snapshot,
@@ -503,13 +510,6 @@ class HomeRepositoryTest {
         ).observeHomeSnapshotInputs(now, providedZone).first()
 
         assertEquals(HomeInputSource.SNAPSHOT, inputs.source)
-        verify(exactly = 1) {
-            homeSnapshotRepository.isSnapshotUsable(
-                snapshot = snapshot,
-                now = now,
-                zoneId = providedZone,
-            )
-        }
         verify(exactly = 1) {
             homeSnapshotRepository.scheduleEntriesForHome(
                 snapshot = snapshot,
@@ -547,14 +547,7 @@ class HomeRepositoryTest {
 
         every { settingsRepository.settingsState } returns MutableStateFlow(settings)
         every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(snapshot)
-        every {
-            homeSnapshotRepository.isSnapshotUsable(
-                snapshot = snapshot,
-                now = now,
-                zoneId = zoneId,
-            )
-        } returns true
+        every { homeSnapshotRepository.currentCache } returns flowOf(HomeCacheState(0L, snapshot, e2Inputs = null))
         every {
             homeSnapshotRepository.scheduleEntriesForHome(
                 snapshot = snapshot,
@@ -577,7 +570,7 @@ class HomeRepositoryTest {
     }
 
     @Test
-    fun observeHomeInputs_whenSnapshotMissingUsesRoomLatestEstradiolEntryWithoutRefreshing() =
+    fun observeHomeInputs_whenSnapshotMissingUsesRoomLatestEstradiolEntry() =
         runTest {
             val now = LocalDateTime.of(2026, 5, 6, 10, 15)
             val zoneId = ZoneId.systemDefault()
@@ -605,14 +598,7 @@ class HomeRepositoryTest {
             every {
                 settingsRepository.homeE2ChartWindowOptionFlow
             } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-            every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(null)
-            every {
-                homeSnapshotRepository.refreshHomeSnapshotAsync(
-                    any(),
-                    any(),
-                    any()
-                )
-            } returns Unit
+            every { homeSnapshotRepository.currentCache } returns flowOf(null)
 
             val inputs = HomeRepository(
                 databaseHolder = databaseHolder,
@@ -630,39 +616,7 @@ class HomeRepositoryTest {
 
             assertEquals(HomeInputSource.ROOM, inputs.source)
             assertEquals(latestEstradiolEntry.uuid, inputs.latestEstradiolEntry?.uuid.toString())
-            verify(exactly = 0) {
-                homeSnapshotRepository.refreshHomeSnapshotAsync(
-                    any(),
-                    any(),
-                    any()
-                )
-            }
         }
-
-    @Test
-    fun refreshHomeSnapshotAsync_forwardsProvidedZone() {
-        val now = LocalDateTime.of(2026, 5, 6, 10, 15)
-        val zoneId = ZoneId.of("America/New_York")
-        every { homeSnapshotRepository.refreshHomeSnapshotAsync(any(), any(), any()) } returns Unit
-
-        HomeRepository(
-            databaseHolder = databaseHolder,
-            settingsRepository = settingsRepository,
-            homeSnapshotRepository = homeSnapshotRepository,
-            medicineStockRepository = medicineStockRepository,
-            medicineRepository = medicineRepository,
-            medicationLogRepository = medicationLogRepository,
-            journalRepository = journalRepository,
-        ).refreshHomeSnapshotAsync(now = now, force = true, zoneId = zoneId)
-
-        verify(exactly = 1) {
-            homeSnapshotRepository.refreshHomeSnapshotAsync(
-                now = now,
-                force = true,
-                zoneId = zoneId,
-            )
-        }
-    }
 
     @Test
     fun observeHomeInputs_roomEmissionCarriesStockWarnings() = runTest {
@@ -699,7 +653,7 @@ class HomeRepositoryTest {
         every { homeDao.observeLatestEstradiolEntryOnOrBefore(any()) } returns flowOf(null)
         every { settingsRepository.settingsState } returns MutableStateFlow(settings)
         every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(null)
+        every { homeSnapshotRepository.currentCache } returns flowOf(null)
         every { medicineRepository.observeAllActiveTracked() } returns flowOf(listOf(medicine))
         every {
             medicationLogRepository.observeScheduledEntriesInWindow(any(), any())
@@ -751,7 +705,7 @@ class HomeRepositoryTest {
         every { homeDao.observeLatestEstradiolEntryOnOrBefore(any()) } returns flowOf(null)
         every { settingsRepository.settingsState } returns MutableStateFlow(settings)
         every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(null)
+        every { homeSnapshotRepository.currentCache } returns flowOf(null)
         every { journalRepository.observePinnedTrackedDates() } returns flowOf(listOf(hero))
 
         val inputs = HomeRepository(
@@ -799,7 +753,7 @@ class HomeRepositoryTest {
         every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(
             settings.homeE2ChartWindowOption
         )
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(null)
+        every { homeSnapshotRepository.currentCache } returns flowOf(null)
         every { journalRepository.observePinnedTrackedDates() } returns pinnedDates
         every {
             medicineStockRepository.projectAll(any(), any(), any(), any(), any())
@@ -902,7 +856,7 @@ class HomeRepositoryTest {
             every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(
                 settings.homeE2ChartWindowOption
             )
-            every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(null)
+            every { homeSnapshotRepository.currentCache } returns flowOf(null)
             every { medicineRepository.observeAllActiveTracked() } returns flowOf(listOf(medicine))
             every {
                 medicationLogRepository.observeScheduledEntriesInWindow(any(), any())
@@ -1024,10 +978,7 @@ class HomeRepositoryTest {
 
         every { settingsRepository.settingsState } returns MutableStateFlow(settings)
         every { settingsRepository.homeE2ChartWindowOptionFlow } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns flowOf(snapshot)
-        every {
-            homeSnapshotRepository.isSnapshotUsable(any(), any(), any())
-        } returns true
+        every { homeSnapshotRepository.currentCache } returns flowOf(HomeCacheState(0L, snapshot, e2Inputs = null))
         every {
             homeSnapshotRepository.scheduleEntriesForHome(
                 any(),
@@ -1065,8 +1016,8 @@ class HomeRepositoryTest {
         val now = LocalDateTime.of(2026, 5, 6, 10, 15)
         val zoneId = ZoneId.systemDefault()
         val settings = SettingsState(homeE2DisplayUnit = BloodUnitKey.PG_ML)
-        val snapshotRecords = MutableSharedFlow<HomeSnapshotRecord?>(replay = 1)
-        val roomSnapshotRecords = MutableSharedFlow<HomeSnapshotRecord?>(replay = 1)
+        val snapshotRecords = MutableSharedFlow<HomeCacheState?>(replay = 1)
+        val roomSnapshotRecords = MutableSharedFlow<HomeCacheState?>(replay = 1)
         val snapshot = HomeSnapshotRecord(
             schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
             generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
@@ -1093,17 +1044,10 @@ class HomeRepositoryTest {
         every {
             settingsRepository.homeE2ChartWindowOptionFlow
         } returns MutableStateFlow(settings.homeE2ChartWindowOption)
-        every { homeSnapshotRepository.observeHomeSnapshot() } returnsMany listOf(
+        every { homeSnapshotRepository.currentCache } returnsMany listOf(
             snapshotRecords,
             roomSnapshotRecords,
         )
-        every {
-            homeSnapshotRepository.isSnapshotUsable(
-                snapshot = any(),
-                now = any(),
-                zoneId = any(),
-            )
-        } returns true
         every {
             homeSnapshotRepository.scheduleEntriesForHome(
                 snapshot = any(),
@@ -1139,7 +1083,7 @@ class HomeRepositoryTest {
 
         assertEquals(listOf(HomeInputSource.ROOM), emittedSources)
 
-        snapshotRecords.emit(snapshot)
+        snapshotRecords.emit(HomeCacheState(0L, snapshot, e2Inputs = null))
         advanceUntilIdle()
 
         assertEquals(false, emittedSources.contains(HomeInputSource.SNAPSHOT))

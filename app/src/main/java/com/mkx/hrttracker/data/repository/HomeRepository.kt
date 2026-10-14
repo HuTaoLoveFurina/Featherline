@@ -80,46 +80,37 @@ class HomeRepository @Inject constructor(
         // here carries the persisted option rather than the SEVEN_DAYS
         // placeholder: the E2 skeleton's chart toggle shows the user's choice.
         return combine(
-            homeSnapshotRepository.observeHomeSnapshot(),
+            // Current Home data only: without it the first frame waits for Room.
+            homeSnapshotRepository.currentCache.mapNotNull { state -> state?.homeData },
             settingsRepository.homeE2ChartWindowOptionFlow,
             settingsRepository.settingsState,
-        ) { snapshot, option, settingsState ->
-            Triple(snapshot, option, settingsState)
-        }
-            .mapNotNull { (snapshot, option, settingsState) ->
-                val usable = snapshot?.takeIf {
-                    homeSnapshotRepository.isSnapshotUsable(
-                        snapshot = it,
-                        now = now,
-                        zoneId = zoneId,
-                    )
-                } ?: return@mapNotNull null
-                val stockWarnings = medicineStockRepository.projectAll(
-                    medicines = usable.stockMedicines,
-                    activeGroups = usable.activeGroups,
-                    logEntries = usable.stockFulfillmentEntries,
-                    now = now.atZone(zoneId).toInstant(),
-                    zoneId = zoneId,
-                ).stockWarningsOnly()
-                HomeInputs(
-                    activeGroups = usable.activeGroups,
-                    archivedGroups = usable.archivedGroups,
-                    scheduleEntries = homeSnapshotRepository.scheduleEntriesForHome(
-                        snapshot = usable,
-                        now = now,
-                        zoneId = zoneId,
-                    ),
-                    antiandrogenHistoryEntries = usable.antiandrogenHistoryEntries,
-                    // settingsState's eager placeholder could disagree with the raw
-                    // option flow on cold start; copy the raw value in.
-                    settings = settingsState.copy(homeE2ChartWindowOption = option),
-                    latestEstradiolEntry = usable.latestEstradiolEntry,
-                    stockWarnings = stockWarnings,
-                    homeAnchor = usable.homeAnchor,
-                    source = HomeInputSource.SNAPSHOT,
+        ) { homeData, option, settingsState ->
+            val stockWarnings = medicineStockRepository.projectAll(
+                medicines = homeData.stockMedicines,
+                activeGroups = homeData.activeGroups,
+                logEntries = homeData.stockFulfillmentEntries,
+                now = now.atZone(zoneId).toInstant(),
+                zoneId = zoneId,
+            ).stockWarningsOnly()
+            HomeInputs(
+                activeGroups = homeData.activeGroups,
+                archivedGroups = homeData.archivedGroups,
+                scheduleEntries = homeSnapshotRepository.scheduleEntriesForHome(
+                    snapshot = homeData,
                     now = now,
-                )
-            }
+                    zoneId = zoneId,
+                ),
+                antiandrogenHistoryEntries = homeData.antiandrogenHistoryEntries,
+                // settingsState's eager placeholder could disagree with the raw
+                // option flow on cold start; copy the raw value in.
+                settings = settingsState.copy(homeE2ChartWindowOption = option),
+                latestEstradiolEntry = homeData.latestEstradiolEntry,
+                stockWarnings = stockWarnings,
+                homeAnchor = homeData.homeAnchor,
+                source = HomeInputSource.SNAPSHOT,
+                now = now,
+            )
+        }
             .catch { throwable ->
                 if (throwable is CancellationException) throw throwable
                 diagnosticsLogger.warning(TAG, "home_snapshot_inputs_failed", throwable)
@@ -368,14 +359,6 @@ class HomeRepository @Inject constructor(
         homeSnapshotRepository.runHomeDataMutation {
             settingsRepository.setHomeE2ChartWindowOption(option)
         }
-    }
-
-    fun refreshHomeSnapshotAsync(
-        now: LocalDateTime,
-        force: Boolean = false,
-        zoneId: ZoneId = ZoneId.systemDefault(),
-    ) {
-        homeSnapshotRepository.refreshHomeSnapshotAsync(now = now, force = force, zoneId = zoneId)
     }
 
     private suspend fun <T> suppressInconsistentHomeEmission(

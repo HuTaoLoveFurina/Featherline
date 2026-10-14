@@ -61,7 +61,6 @@ class CustomMedicineWidgetRouteTest {
             generatedAtEpochMillis = now.atZone(zoneId).toInstant().toEpochMilli(),
             anchorDateEpochDay = now.toLocalDate().toEpochDay(),
             zoneId = zoneId.id,
-            widgetPkProjection = null,
             activeGroups = listOf(group),
             archivedGroups = emptyList(),
             scheduleEntries = emptyList(),
@@ -72,6 +71,7 @@ class CustomMedicineWidgetRouteTest {
         val row = buildWidgetSnapshotRecord(
             context = context,
             homeSnapshot = homeSnapshot,
+            widgetEstimate = null,
             settings = SettingsState(),
             now = now,
             zoneId = zoneId,

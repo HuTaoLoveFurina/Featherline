@@ -75,7 +75,6 @@ class MainViewModel @Inject constructor(
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     private val currentSnapshot = appTimeSource.currentSnapshot
-    private var lastHomeSnapshotRefreshKey: HomeSnapshotRefreshKey? = null
 
     /** The app is in the foreground: the process lifecycle is at least STARTED. */
     private val foreground: Flow<Boolean> = processLifecycleState
@@ -149,14 +148,12 @@ class MainViewModel @Inject constructor(
         val keyedInputsFlow = gatedSnapshot
             .map { snapshot ->
                 HomeTimeKey(
-                    now = snapshot.minute,
                     date = snapshot.minute.toLocalDate(),
                     zoneId = snapshot.zone,
                 )
             }
             .distinctUntilChangedBy { key -> key.date to key.zoneId }
             .flatMapLatest { key ->
-                refreshHomeSnapshotForDateIfNeeded(key.now, key.zoneId)
                 homeRepository.observeHomeInputs(
                     date = key.date,
                     nowFlow = gatedMinute,
@@ -393,21 +390,6 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    private fun refreshHomeSnapshotForDateIfNeeded(
-        now: LocalDateTime,
-        zoneId: ZoneId,
-    ) {
-        val key = HomeSnapshotRefreshKey(
-            date = now.toLocalDate(),
-            zoneId = zoneId.id,
-        )
-        if (lastHomeSnapshotRefreshKey == key) {
-            return
-        }
-        lastHomeSnapshotRefreshKey = key
-        homeRepository.refreshHomeSnapshotAsync(now = now, force = false, zoneId = zoneId)
-    }
-
     private fun buildHomeUiState(
         inputs: HomeInputs,
         /** Null for the skeleton. */
@@ -554,14 +536,8 @@ class MainViewModel @Inject constructor(
     }
 
     private data class HomeTimeKey(
-        val now: LocalDateTime,
         val date: LocalDate,
         val zoneId: ZoneId,
-    )
-
-    private data class HomeSnapshotRefreshKey(
-        val date: LocalDate,
-        val zoneId: String,
     )
 
     private data class KeyedHomeInputs(val key: HomeTimeKey, val inputs: HomeInputs)

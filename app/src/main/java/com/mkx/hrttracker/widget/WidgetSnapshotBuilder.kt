@@ -2,7 +2,6 @@ package com.mkx.hrttracker.widget
 
 import android.content.Context
 import com.mkx.hrttracker.R
-import com.mkx.hrttracker.data.repository.HomePkProjectionRecord
 import com.mkx.hrttracker.data.repository.HomeSnapshotRecord
 import com.mkx.hrttracker.model.medication.MedicationGroup
 import com.mkx.hrttracker.model.medication.MedicationLogEntry
@@ -10,11 +9,13 @@ import com.mkx.hrttracker.model.medication.PlanDayScheduleEntry
 import com.mkx.hrttracker.model.medication.buildPlanDaySchedule
 import com.mkx.hrttracker.model.medication.isArchived
 import com.mkx.hrttracker.model.medication.visibleMedicationEntries
+import com.mkx.hrttracker.model.pk.PkProjectionResult
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.util.doseInstructionText
 import com.mkx.hrttracker.util.localizedShortTimeFormatter
 import com.mkx.hrttracker.util.medicationEntryTitle
 import com.mkx.hrttracker.util.medicationRouteLabel
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
@@ -24,6 +25,8 @@ import java.util.Locale
 internal fun buildWidgetSnapshotRecord(
     context: Context,
     homeSnapshot: HomeSnapshotRecord,
+    /** The widget's E2 estimate at [now] (E2EstimateRepository.widgetEstimate); null shows none. */
+    widgetEstimate: PkProjectionResult?,
     settings: SettingsState,
     now: LocalDateTime,
     zoneId: ZoneId = ZoneId.systemDefault(),
@@ -153,7 +156,7 @@ internal fun buildWidgetSnapshotRecord(
         e2DisplayUnit = settings.homeE2DisplayUnit.storageValue,
         appLanguageTag = settings.appLanguageOption.languageTag,
         doseRows = lastNightRows + (todayScheduledRows + manualRows).sortedBy { row -> row.scheduledAt } + comingUpRows,
-        pkProjection = homeSnapshot.widgetPkProjection?.toWidgetRecord(),
+        pkProjection = widgetEstimate?.toWidgetRecord(generatedAt = now.atZone(zoneId).toInstant()),
     )
 }
 
@@ -243,13 +246,14 @@ private fun PlanDayScheduleEntry.toWidgetDoseRow(
     )
 }
 
-private fun HomePkProjectionRecord.toWidgetRecord(): WidgetPkProjectionRecord =
+private fun PkProjectionResult.toWidgetRecord(generatedAt: Instant): WidgetPkProjectionRecord =
     WidgetPkProjectionRecord(
-        generatedAtEpochMillis = generatedAtEpochMillis,
-        windowStartEpochMillis = windowStartEpochMillis,
-        windowEndEpochMillis = windowEndEpochMillis,
-        pkProjectionExpiresAtEpochMillis = pkProjectionExpiresAtEpochMillis,
-        concentrationUnit = concentrationUnit,
+        generatedAtEpochMillis = generatedAt.toEpochMilli(),
+        windowStartEpochMillis = windowStart.toEpochMilli(),
+        windowEndEpochMillis = windowEnd.toEpochMilli(),
+        // Logged doses only: nothing goes stale before the window end.
+        pkProjectionExpiresAtEpochMillis = windowEnd.toEpochMilli(),
+        concentrationUnit = concentrationUnit.name,
         timeH = timeH,
         concentrations = concentrations,
         doseMarkers = doseMarkers.map { marker ->

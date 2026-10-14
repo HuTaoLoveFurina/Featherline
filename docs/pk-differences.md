@@ -101,17 +101,16 @@ should read the upstream README and its `pk_research/` workspace.
   contract because it has no cache.
 - **Home's estimate derived by key.** Home's curve, band and
   calibration status are not cached with an expiry. `E2Derivation`
-  derives them from the E2 inputs the home snapshot carries (logged
-  doses, planned-dose sources, weight, chart option and the
-  calibration fit), and `E2EstimateRepository` reuses an estimate
+  derives them from the E2 inputs the rebuild worker publishes beside
+  Home data (logged doses, planned-dose sources, weight, chart option
+  and the calibration fit), and `E2EstimateRepository` reuses an estimate
   only under the exact key it was derived for, deriving it again
   whenever the key moves: a planned dose passing, midnight, or a data
   change. There is no fallback simulation; see
   [`architecture.md#home-snapshot-and-pk-projection-cache`](architecture.md#home-snapshot-and-pk-projection-cache).
-  The snapshot still bundles `widgetPkProjection` (a smaller
-  projection sized for the widget's E2 estimate, which has its own
-  validity window), rebuilt with every home-data mutation, and
-  the widget consumes `widgetPkProjection` via
+  The widget's smaller seven-day projection is derived the same way
+  (`E2EstimateRepository.widgetEstimate`, logged doses only), and the
+  widget consumes it via
   [`WidgetSnapshotBuilder`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/widget/WidgetSnapshotBuilder.kt)
   with its own expiry check on the widget render path. Upstream has
   no equivalent because it has no persistent home snapshot.

@@ -59,7 +59,7 @@ class MedicineStockRepository @Inject constructor(
             medicineRepository.observeAllActiveOrNull(),
             medicationGroupRepository.observeGroups(),
             medicationLogRepository.observeEntries(),
-            homeSnapshotRepository.observeHomeSnapshot(),
+            homeSnapshotRepository.currentCache.map { state -> state?.homeData },
         ) { medicines, groups, logEntries, snapshot ->
             val now = clock.instant()
             when {

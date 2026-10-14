@@ -99,7 +99,6 @@ class MainViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        every { homeRepository.refreshHomeSnapshotAsync(any(), any(), any()) } returns Unit
         every { timeZoneChangeNoticeController.notice } returns MutableStateFlow(null)
         every { settingsRepository.homeLowStockSectionExpandedFlow } returns MutableStateFlow(true)
         every { settingsRepository.homeLowStockAcknowledgedWarningStatesFlow } returns MutableStateFlow(
@@ -118,7 +117,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun clockTickWithinSameDay_doesNotResubscribeOrRefreshSnapshot() = runTest {
+    fun clockTickWithinSameDay_doesNotResubscribe() = runTest {
         val firstMinute = LocalDateTime.of(2026, 4, 30, 9, 0)
         val appTimeSource = FakeAppTimeSource(firstMinute)
         every { homeRepository.observeHomeInputs(any(), any(), any()) } answers {
@@ -144,13 +143,6 @@ class MainViewModelTest {
                 ZoneId.systemDefault(),
             )
         }
-        verify(exactly = 1) {
-            homeRepository.refreshHomeSnapshotAsync(
-                now = firstMinute,
-                force = false,
-                zoneId = ZoneId.systemDefault(),
-            )
-        }
 
         appTimeSource.setCurrentMinute(firstMinute.plusMinutes(1))
         advanceUntilIdle()
@@ -158,7 +150,6 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         verify(exactly = 1) { homeRepository.observeHomeInputs(any(), any(), any()) }
-        verify(exactly = 1) { homeRepository.refreshHomeSnapshotAsync(any(), any(), any()) }
         assertEquals(firstMinute.plusMinutes(2), viewModel.uiState.value.now)
     }
 
@@ -511,7 +502,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun explicitRefreshWithinSameDayAndZoneReanchorsNowWithoutResubscribingOrRefreshingSnapshot() =
+    fun explicitRefreshWithinSameDayAndZoneReanchorsNowWithoutResubscribing() =
         runTest {
             val firstMinute = LocalDateTime.of(2026, 4, 30, 9, 0)
             val zoneId = ZoneId.of("UTC")
@@ -544,20 +535,12 @@ class MainViewModelTest {
                     zoneId,
                 )
             }
-            verify(exactly = 1) {
-                homeRepository.refreshHomeSnapshotAsync(
-                    now = firstMinute,
-                    force = false,
-                    zoneId = zoneId,
-                )
-            }
 
             val normalTick = firstMinute.plusMinutes(1)
             appTimeSource.setCurrentMinute(normalTick)
             advanceUntilIdle()
 
             verify(exactly = 1) { homeRepository.observeHomeInputs(any(), any(), any()) }
-            verify(exactly = 1) { homeRepository.refreshHomeSnapshotAsync(any(), any(), any()) }
             assertEquals(normalTick, viewModel.uiState.value.now)
 
             val refreshedMinute = firstMinute.plusHours(2)
@@ -565,7 +548,6 @@ class MainViewModelTest {
             advanceUntilIdle()
 
             verify(exactly = 1) { homeRepository.observeHomeInputs(any(), any(), any()) }
-            verify(exactly = 1) { homeRepository.refreshHomeSnapshotAsync(any(), any(), any()) }
             assertEquals(refreshedMinute, viewModel.uiState.value.now)
         }
 
@@ -607,7 +589,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun clockTickAcrossMidnight_updatesTodaySectionDateAndRefreshesSnapshot() = runTest {
+    fun clockTickAcrossMidnight_updatesTodaySectionDate() = runTest {
         val firstMinute = LocalDateTime.of(2026, 4, 30, 23, 59)
         val appTimeSource = FakeAppTimeSource(firstMinute)
         every { homeRepository.observeHomeInputs(any(), any(), any()) } answers {
@@ -627,26 +609,12 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertEquals(LocalDate.of(2026, 4, 30), viewModel.uiState.value.todaySection.date)
-        verify(exactly = 1) {
-            homeRepository.refreshHomeSnapshotAsync(
-                now = firstMinute,
-                force = false,
-                zoneId = ZoneId.systemDefault(),
-            )
-        }
 
         val nextMinute = LocalDateTime.of(2026, 5, 1, 0, 0)
         appTimeSource.setCurrentMinute(nextMinute)
         advanceUntilIdle()
 
         assertEquals(LocalDate.of(2026, 5, 1), viewModel.uiState.value.todaySection.date)
-        verify(exactly = 1) {
-            homeRepository.refreshHomeSnapshotAsync(
-                now = nextMinute,
-                force = false,
-                zoneId = ZoneId.systemDefault(),
-            )
-        }
     }
 
     @Test
@@ -1481,7 +1449,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun sameDateZoneChangeResubscribesHomeInputsAndRefreshesSnapshotForNewZone() = runTest {
+    fun sameDateZoneChangeResubscribesHomeInputsForNewZone() = runTest {
         val localMinute = LocalDateTime.of(2026, 6, 3, 12, 0)
         val utc = ZoneId.of("UTC")
         val tokyo = ZoneId.of("Asia/Tokyo")
@@ -1514,13 +1482,6 @@ class MainViewModelTest {
                 utc
             )
         }
-        verify(exactly = 1) {
-            homeRepository.refreshHomeSnapshotAsync(
-                now = localMinute,
-                force = false,
-                zoneId = utc,
-            )
-        }
 
         appTimeSource.setCurrentSnapshot(localMinute, tokyo)
         advanceUntilIdle()
@@ -1530,13 +1491,6 @@ class MainViewModelTest {
                 localMinute.toLocalDate(),
                 any(),
                 tokyo
-            )
-        }
-        verify(exactly = 1) {
-            homeRepository.refreshHomeSnapshotAsync(
-                now = localMinute,
-                force = false,
-                zoneId = tokyo,
             )
         }
         assertEquals(localMinute, viewModel.uiState.value.now)

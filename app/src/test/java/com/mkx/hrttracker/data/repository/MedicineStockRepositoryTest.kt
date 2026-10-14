@@ -78,7 +78,7 @@ class MedicineStockRepositoryTest {
         every { medicineRepository.observeAllActiveOrNull() } returns MutableStateFlow(emptyList())
         every { medicationGroupRepository.observeGroups() } returns MutableStateFlow(emptyList())
         every { medicationLogRepository.observeEntries() } returns MutableStateFlow(emptyList())
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns MutableStateFlow(null)
         repository = MedicineStockRepository(
             medicineRepository = medicineRepository,
             medicationGroupRepository = medicationGroupRepository,
@@ -369,7 +369,7 @@ class MedicineStockRepositoryTest {
         every { medicationGroupRepository.observeGroups() } returns
                 MutableStateFlow<List<MedicationGroup>?>(listOf(group))
         every { medicationLogRepository.observeEntries() } returns MutableStateFlow(emptyList())
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns MutableStateFlow(null)
         val projectionScope =
             CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
         try {
@@ -392,6 +392,55 @@ class MedicineStockRepositoryTest {
                 RunwayProjection.Days(days = 21, lastFulfillable = LocalDate.of(2026, 1, 22)),
                 preview,
             )
+        } finally {
+            projectionScope.cancel()
+        }
+    }
+
+    @Test
+    fun beforeRoomIsLive_projectionsSeedFromCurrentHomeData_andOnlyCurrent() = runTest {
+        val medicine = pill(
+            MedicineStock(
+                trackingEnabled = true,
+                unitsRemaining = 2.0,
+                unitsLastTotal = 30.0,
+                openContainerAmount = null,
+                warnAtDaysRemaining = 0,
+                generation = 1L,
+            )
+        )
+        val homeData = HomeSnapshotRecord(
+            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
+            generatedAtEpochMillis = 0L,
+            anchorDateEpochDay = LocalDate.of(2026, 1, 1).toEpochDay(),
+            zoneId = "UTC",
+            activeGroups = listOf(dailyGroup(medicine)),
+            scheduleEntries = emptyList(),
+            antiandrogenHistoryEntries = emptyList(),
+            stockMedicines = listOf(medicine),
+        )
+        val currentCache = MutableStateFlow<HomeCacheState?>(HomeCacheState(1L, homeData, e2Inputs = null))
+        every { medicineRepository.observeAllActiveOrNull() } returns MutableStateFlow(null)
+        every { medicationGroupRepository.observeGroups() } returns MutableStateFlow(null)
+        every { medicationLogRepository.observeEntries() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns currentCache
+        val projectionScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        try {
+            val repository = MedicineStockRepository(
+                medicineRepository = medicineRepository,
+                medicationGroupRepository = medicationGroupRepository,
+                medicationLogRepository = medicationLogRepository,
+                homeSnapshotRepository = homeSnapshotRepository,
+                appScope = projectionScope,
+                clock = clock,
+            )
+            advanceUntilIdle()
+            assertEquals(listOf(medicine.uuid), repository.getCachedProjections()?.map { it.medicine.uuid })
+
+            // A mutation committed, and its run hasn't published.
+            currentCache.value = null
+            advanceUntilIdle()
+            assertEquals(null, repository.getCachedProjections())
         } finally {
             projectionScope.cancel()
         }
@@ -421,7 +470,7 @@ class MedicineStockRepositoryTest {
         every { medicationGroupRepository.observeGroups() } returns
                 MutableStateFlow<List<MedicationGroup>?>(listOf(group))
         every { medicationLogRepository.observeEntries() } returns MutableStateFlow(emptyList())
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns MutableStateFlow(null)
         val projectionScope =
             CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
         try {
@@ -471,7 +520,7 @@ class MedicineStockRepositoryTest {
         every { medicationGroupRepository.observeGroups() } returns
                 MutableStateFlow<List<MedicationGroup>?>(listOf(group))
         every { medicationLogRepository.observeEntries() } returns MutableStateFlow(emptyList())
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns MutableStateFlow(null)
         val projectionScope =
             CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
         try {
@@ -520,7 +569,7 @@ class MedicineStockRepositoryTest {
         every { medicineRepository.observeAllActiveOrNull() } returns medicines
         every { medicationGroupRepository.observeGroups() } returns groups
         every { medicationLogRepository.observeEntries() } returns logs
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns MutableStateFlow(null)
         val projectionScope =
             CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
         try {
@@ -575,7 +624,7 @@ class MedicineStockRepositoryTest {
             emptyList()
         )
         every { medicationLogRepository.observeEntries() } returns MutableStateFlow(emptyList())
-        every { homeSnapshotRepository.observeHomeSnapshot() } returns MutableStateFlow(null)
+        every { homeSnapshotRepository.currentCache } returns MutableStateFlow(null)
         clearMocks(
             medicineRepository,
             medicationGroupRepository,
@@ -602,7 +651,7 @@ class MedicineStockRepositoryTest {
         verify(exactly = 1) { medicineRepository.observeAllActiveOrNull() }
         verify(exactly = 1) { medicationGroupRepository.observeGroups() }
         verify(exactly = 1) { medicationLogRepository.observeEntries() }
-        verify(exactly = 1) { homeSnapshotRepository.observeHomeSnapshot() }
+        verify(exactly = 1) { homeSnapshotRepository.currentCache }
     }
 
     @Test

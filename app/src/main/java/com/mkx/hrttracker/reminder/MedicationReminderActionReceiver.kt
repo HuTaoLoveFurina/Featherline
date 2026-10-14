@@ -106,12 +106,12 @@ internal fun handleReminderAction(
                         logTargets = logTargets,
                         notificationTag = notificationTag,
                     )
-                    // Finish only once the log's rebuild and its warm-up
-                    // stored Home's estimate, so the next open shows it at
-                    // once. Bounded by what is left of the budget; the
-                    // rebuild itself carries on in the app scope.
+                    // Finish only once a run that read the log, and its
+                    // warm-up, stored Home's estimate, so the next open shows
+                    // it at once. Bounded by what is left of the budget; the
+                    // run itself carries on in the app scope.
                     val rebuilt = withTimeoutOrNull(-deadline.elapsedNow()) {
-                        homeSnapshotRepository.awaitRebuild()
+                        homeSnapshotRepository.rebuildNow()
                     }
                     if (rebuilt == null) {
                         diagnosticsLogger.warning(TAG, "reminder_action_receiver_rebuild_timeout")

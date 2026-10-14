@@ -127,9 +127,10 @@ code is built around.
 
 [`data/repository`](https://github.com/mkx173/Featherline/tree/main/app/src/main/java/com/mkx/hrttracker/data/repository)
 holds 10 `*Repository` classes — `BloodTestRepository`, `HomeRepository`,
-`HomeSnapshotRepository` (gates all home-data mutations and currently
-bundles the E2 inputs and calibration fit — see [Home snapshot and PK
-projection cache](#home-snapshot-and-pk-projection-cache) below),
+`HomeSnapshotRepository` (gates all home-data mutations, and its
+rebuild worker keeps Home data and the E2 inputs, with the calibration
+fit, in step with Room — see [Home snapshot and PK projection
+cache](#home-snapshot-and-pk-projection-cache) below),
 `JournalRepository` (tracked-date and daily-note Flow observers,
 pin-on-create support, one-note-per-day note writes, and backup
 read-through methods),
@@ -140,8 +141,8 @@ plus the global PATCH_OFF singleton lifecycle),
 `MedicineStockProjection` — total units, runway, state — from the stock
 columns plus the active schedule), `SettingsRepository`,
 and `UserProfileRepository` — plus `HomeSnapshotStore` (serializes
-`HomeSnapshotRecord` including the embedded `HomePkProjectionRecord`
-to an encrypted DataStore file) and the supporting files: the
+`HomeSnapshotRecord` and `E2InputsRecord` to encrypted DataStore
+files) and the supporting files: the
 `MedicationEntityMappers`, `MedicineEntityMappers`, and
 `JournalEntityMappers` helpers and the stock engine —
 `MedicineStockMutator` (applies the deduction-on-log and
@@ -415,17 +416,17 @@ an LLM can resolve every step:
   `HomeRepository.observeHomeInputs(date, nowFlow, zoneId)`, re-subscribed
   only by local date and device zone from `AppTimeSource.currentSnapshot`.
   The live minute flow is a combine arm for now-sensitive projections, so
-  stock runway and snapshot usability can re-anchor per minute or
+  stock runway can re-anchor per minute or
   explicit time refresh without rebuilding Room query observers. The repository
   composes inputs from two sources: a fast `SNAPSHOT` path
-  reading the cached `HomeSnapshotRecord` from
-  `HomeSnapshotRepository.observeHomeSnapshot()`, and a `ROOM` path
+  reading the current Home data (`HomeSnapshotRecord`) from
+  `HomeSnapshotRepository.cache`, and a `ROOM` path
   reading live Flows from `HomeDao`, `MedicationLogDao`,
   `UserProfileDao`, `JournalRepository`'s pinned dates, and the
   selected settings.
 - Home's E2 hero, chart and band come from
   `E2EstimateRepository.observeHome(minute)`, which derives the estimate
-  from the snapshot's E2 inputs by key (see below). `MainViewModel`
+  from the published E2 inputs by key (see below). `MainViewModel`
   restarts that observation each time the app comes to the foreground and
   shows a skeleton while there is no estimate for the current key; it never
   simulates a curve of its own.
@@ -452,23 +453,27 @@ The home screen has two cached layers, both observed by
   Every home-related mutation (a dose log, a schedule edit, a profile
   update) routes through `runHomeDataMutation`, which holds a mutex,
   bumps the durable generation counter via `HomeSnapshotGenerationStore`,
-  runs the mutation, and then asynchronously refreshes the snapshot.
-  Journal hero-anchor changes invalidate and refresh the same snapshot
-  from `JournalRepository`.
+  runs the mutation, and then asks the rebuild worker for a run.
+  Journal hero-anchor changes call `invalidate()` from
+  `JournalRepository`, which does the same with no write. The worker
+  runs one build at a time from a conflated request channel and
+  publishes Home data and the E2 inputs together as
+  `HomeSnapshotRepository.cache`, under the gate's lock and only if no
+  mutation committed since it read the generation.
 - [`HomeSnapshotStore`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/data/repository/HomeSnapshotStore.kt)
   persists the snapshot as an encrypted DataStore file
   (`home_snapshot.pb`) so the home screen paints from cache on cold
   start before live Room observation catches up. The persisted record
   is `HomeSnapshotRecord`. The snapshot codec is at
-  `SNAPSHOT_CODEC_VERSION = 28` and the schema record at
+  `SNAPSHOT_CODEC_VERSION = 29` and the schema record at
   `HOME_SNAPSHOT_SCHEMA_VERSION = 9`; both moved through the
   medicine-identity refactor (slots and log entries now reference a
   medicine by UUID, and the PATCH_OFF singleton round-trips), and the
   codec bumped again when the snapshot began carrying stock inputs so
   the home low-stock section can paint from cache on cold start. v17
   appends a `pkEntries` field — the real estradiol log entries over the
-  PK input window — so the snapshot path can re-run the simulation
-  locally (today the E2 estimate is derived from them). The entries are encoded with a
+  PK input window — so the snapshot path could re-run the simulation
+  locally (v29 moved them to the E2 inputs). The entries are encoded with a
   deduplicated medicine pool (each distinct medicine serialized once,
   referenced by index) since a daily doser repeats the same one or two
   medicines across the whole window. v18 appends an `archivedGroups`
@@ -481,10 +486,18 @@ The home screen has two cached layers, both observed by
   carries what they are derived from instead: `PK_ENGINE_VERSION`, the
   chart option, the calibration fit (`E2FitRecord`, with its epoch and
   outcome) and the E2 results and review metadata it was solved from. The
-  latest estradiol entry moved up to the record's top level.
+  latest estradiol entry moved up to the record's top level. v29 holds
+  Home data only: the logged estradiol doses, the fit, the labs and
+  review metadata, the option and the engine version moved to
+  `home_e2_inputs.pb` (`E2InputsRecord`, its own codec 1), and the
+  widget's projection went. Each file has its own validity rule, the
+  inputs' adding the engine version, and is loaded into the cache only
+  when it holds; a part missing at startup asks for a run. Nothing
+  checks the date or zone in memory after that: the date and zone
+  broadcasts ask for a run at every date and zone change.
 
 Home's E2 estimate is not stored in the snapshot. `E2EstimateRepository`
-derives it from the snapshot's `pkEntries`, active groups, profile weight,
+derives it from the E2 inputs' logged doses, planned-dose groups, weight,
 option and fit with `E2Derivation`, keyed by exactly what the derivation
 reads (`HomeEstimateKey`: the fit, the weight, digests of the logged and
 still-planned doses, the option, the date, the zone and the engine). An
@@ -493,17 +506,18 @@ dose passing, midnight or a data change moves the key, and the estimate is
 derived again (about 150 ms in a release build, no Room read). The last
 Home estimate is stored with its key in the encrypted `home_e2_estimate.pb`;
 each rebuild, the dose reminder and the 15-minute widget worker warm it, so
-an ordinary open finds a match. The widget's seven-day projection
-(`widgetPkProjection`) is still built with the snapshot.
+an ordinary open finds a match. The widget's seven-day estimate is
+derived the same way, by `E2EstimateRepository.widgetEstimate`, from
+the inputs published with the Home data the widget shows.
 
 The calibration page, its result editor and Home's estimate sheet read
 `E2EstimateRepository.observeCalibration`, the same observation keyed by
 `CalibrationRenderKey`: the stored fit rendered over a domain anchored to
 the date (17 days back to 14 days on), from the same logged doses as Home
-(`pkEntries` reach back 17 + 180 days whatever the option), with the
+(the inputs' doses reach back 17 + 180 days whatever the option), with the
 accepted, excluded and non-positive flags taken from the `labs` and
-`labMetadata` the same build stored beside the fit. It is never stored.
-The build solves only when the stored fit can't stand in: its `fitId`, a
+`labMetadata` the same run published beside the fit. It is never stored.
+A run solves only when the published fit can't stand in: its `fitId`, a
 digest of everything the solve reads and nothing of the clock, changed; it
 failed; or a Try again raised the requested fit epoch.
 
@@ -538,23 +552,23 @@ display unit, so a unit switch or midnight during a hold still renders
 correctly. The calibration page takes its lab list live from Room and its
 section from the held estimate. An estimate that lands while the screen
 is hidden releases at once. System events (boot, clock or time-zone
-change, package replaced, the midnight widget refresh) force a rebuild
-past the usable-snapshot check; it carries no newer generation, so it
-lands as `SYSTEM`, without the indicator.
+change, package replaced, the midnight widget refresh) ask the worker
+for a run; it carries no newer generation, so it lands as `SYSTEM`,
+without the indicator.
 
 `E2EstimateRepository.latestHome` holds the newest Home estimate an
 observation admitted or derived, seeded with the stored one. `SettingsViewModel` reads the
 calibration row's basis (`calibration.adjusted`, the status behind Home's
 hero title) from it and seeds its first frame with it.
 
-Bundling the calibration fit into the same record as the
+Rebuilding the calibration fit's inputs with the
 plan-and-fulfillment cache is a known leaky seam:
 
-- Every home-data mutation rebuilds the E2 inputs with the rest of the
-  snapshot, even when no PK input changed; only the solve is skipped,
-  when the stored fit can stand in. Read-side observers reject any
-  snapshot whose `generation` is older than the durable generation
-  counter, so stale reads cannot survive a concurrent write.
+- Every home-data mutation rebuilds the E2 inputs with Home data, even
+  when no PK input changed; only the solve is skipped, when the
+  published fit can stand in. Readers use a part only while its
+  `generation` equals the durable generation counter, so stale reads
+  cannot survive a concurrent write.
 
 Both layers are correct under their current invariants; the leak is
 that the plan-and-fulfillment cache and the E2 inputs share an
@@ -565,8 +579,10 @@ will return to being the plan-and-fulfillment cache it should have
 been all along.
 
 The home-screen widget consumes this same `HomeSnapshotRecord`: a
-`HomeWidgetManager` singleton observes `observeHomeSnapshot()`, derives
-a slimmer `WidgetSnapshotRecord` via `WidgetSnapshotBuilder`, and
+`HomeWidgetManager` singleton observes the current state of
+`HomeSnapshotRepository.cache` and, from one with both parts, derives a
+slimmer `WidgetSnapshotRecord` via `WidgetSnapshotBuilder`: rows from
+its Home data, the estimate from its E2 inputs (`widgetEstimate`); it
 persists it to its own encrypted DataStore (`widget_snapshot.pb`) for
 Glance to read. The widget pipeline, its update triggers, and the
 quick-log action contract are documented separately in
@@ -581,12 +597,12 @@ They are not release blockers.
 - The PK math (constants, three-compartment simulation, dose-equivalence
   conversion) is fragmented across the `model.pk` package and the
   `data` layer; consolidation is gated on the new engine's shape.
-- `HomeSnapshotRepository` bundles the calibration fit into the home-data
-  snapshot, causing a rebuild of the E2 inputs on every home mutation (see
+- `HomeSnapshotRepository` rebuilds the E2 inputs and their calibration
+  fit with Home data, under one generation, on every home mutation (see
   [Home snapshot and PK projection cache](#home-snapshot-and-pk-projection-cache)
   above).
-- Route-scale estimate calibration runs inside the Home snapshot build
-  when the stored fit can't be reused. With many E2
+- Route-scale estimate calibration runs inside the rebuild worker's run
+  when the published fit can't be reused. With many E2
   results the 1-D start grid in `PkJointMapSolver` is the costly part
   (about 0.5 s for 20 results on five routes on a Galaxy S20 debug build
   since the grid step went to 1e-2; the opt-in `PkCalibrationSolverTimingTest`

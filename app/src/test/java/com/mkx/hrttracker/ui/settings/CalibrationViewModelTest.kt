@@ -9,8 +9,8 @@ import com.mkx.hrttracker.data.repository.E2FitRecord
 import com.mkx.hrttracker.data.repository.E2Pending
 import com.mkx.hrttracker.data.repository.E2State
 import com.mkx.hrttracker.data.repository.FitOutcome
-import com.mkx.hrttracker.data.repository.HOME_SNAPSHOT_SCHEMA_VERSION
-import com.mkx.hrttracker.data.repository.HomeSnapshotRecord
+import com.mkx.hrttracker.data.repository.E2InputsRecord
+import com.mkx.hrttracker.data.repository.HomeCacheState
 import com.mkx.hrttracker.data.repository.HomeSnapshotRepository
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.data.repository.buildPkCalibrationInput
@@ -23,9 +23,9 @@ import com.mkx.hrttracker.model.medication.DoseInstruction
 import com.mkx.hrttracker.model.medication.MedicinePreparation
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
-import com.mkx.hrttracker.model.personalization.UserProfile
 import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
 import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
+import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
 import com.mkx.hrttracker.model.pk.PkCalibrationEngine
 import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
 import com.mkx.hrttracker.model.pk.PkCalibrationLab
@@ -206,48 +206,36 @@ class CalibrationViewModelTest {
                 valuePgml = 140.0,
             )
         }
-        fun record(generation: Long, metadata: List<E2CalibrationMetadata>): HomeSnapshotRecord {
+        fun inputs(generation: Long, metadata: List<E2CalibrationMetadata>): HomeCacheState {
             val input = buildPkCalibrationInput(labs = labs, entries = logged, weightKg = 62.0, metadata = metadata)
-            return HomeSnapshotRecord(
-                schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
+            return HomeCacheState(
                 generation = generation,
-                generatedAtEpochMillis = 0L,
-                anchorDateEpochDay = now.toLocalDate().toEpochDay(),
-                zoneId = zoneId.id,
-                activeGroups = emptyList(),
-                scheduleEntries = emptyList(),
-                antiandrogenHistoryEntries = emptyList(),
-                userProfile = UserProfile(weightKg = 62.0),
-                pkEntries = logged,
-                fit = E2FitRecord(
-                    fitId = E2Derivation.fitId(input),
-                    epoch = 0,
-                    outcome = FitOutcome.Solved(PkCalibrationEngine.evaluate(input).result, input.originEpochMillis),
+                homeData = null,
+                e2Inputs = E2InputsRecord(
+                    generation = generation,
+                    anchorDateEpochDay = now.toLocalDate().toEpochDay(),
+                    zoneId = zoneId.id,
+                    option = HomeE2ChartWindowOption.SEVEN_DAYS,
+                    weightKg = 62.0,
+                    estradiolEntries = logged,
+                    plannedSources = emptyList(),
+                    labs = labs,
+                    labMetadata = metadata,
+                    fit = E2FitRecord(
+                        fitId = E2Derivation.fitId(input),
+                        epoch = 0,
+                        outcome = FitOutcome.Solved(PkCalibrationEngine.evaluate(input).result, input.originEpochMillis),
+                    ),
                 ),
-                labs = labs,
-                labMetadata = metadata,
             )
         }
-        val records = MutableStateFlow(record(generation = 0L, metadata = emptyList()))
+        val cache = MutableStateFlow<HomeCacheState?>(inputs(generation = 0L, metadata = emptyList()))
         val generation = MutableStateFlow(0L)
-        lateinit var estimates: E2EstimateRepository
-        val snapshots = HomeSnapshotRepository(
-            databaseHolder = mockk(),
-            homeSnapshotStore = mockk {
-                every { observeSnapshot() } returns records
-                coEvery { readSnapshot() } answers { records.value }
-            },
-            homeSnapshotGenerationStore = mockk {
-                every { observeGeneration() } returns generation
-                coEvery { readGeneration() } answers { generation.value }
-            },
-            settingsRepository = mockk(relaxed = true),
-            e2EstimateRepository = { estimates },
-            appScope = backgroundScope,
-            defaultDispatcher = StandardTestDispatcher(testScheduler),
-            diagnosticsLogger = mockk(relaxed = true),
-        )
-        estimates = E2EstimateRepository(
+        val snapshots = mockk<HomeSnapshotRepository>(relaxed = true) {
+            every { this@mockk.cache } returns cache
+            every { this@mockk.generation } returns generation
+        }
+        val estimates = E2EstimateRepository(
             homeSnapshotRepository = snapshots,
             store = mockk { coEvery { read() } returns null },
             clock = Clock.fixed(now.atZone(zoneId).toInstant(), zoneId),
@@ -273,7 +261,7 @@ class CalibrationViewModelTest {
         processLifecycleState.value = Lifecycle.State.CREATED
         val review = listOf(E2CalibrationMetadata(labs.first().resultId, E2CalibrationDisposition.REVIEWED, Instant.EPOCH))
         generation.value = 1L
-        records.value = record(generation = 1L, metadata = review)
+        cache.value = inputs(generation = 1L, metadata = review)
         val editor = mutableListOf<E2State<CalibrationEstimate>>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             estimates.observeCalibration(MutableStateFlow(now)).collect { state -> editor += state }

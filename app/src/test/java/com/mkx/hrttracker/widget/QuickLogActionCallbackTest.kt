@@ -55,7 +55,7 @@ import java.util.UUID
 @OptIn(ExperimentalCoroutinesApi::class)
 class QuickLogActionCallbackTest {
     private val homeSnapshotRepository: HomeSnapshotRepository = mockk {
-        coEvery { awaitRebuild() } just Runs
+        coEvery { rebuildNow() } just Runs
     }
 
     @After
@@ -117,7 +117,7 @@ class QuickLogActionCallbackTest {
         // It finishes only once the log's rebuild, and its warm-up, are done.
         coVerifyOrder {
             logRepository.saveNewEntries(any())
-            homeSnapshotRepository.awaitRebuild()
+            homeSnapshotRepository.rebuildNow()
         }
     }
 

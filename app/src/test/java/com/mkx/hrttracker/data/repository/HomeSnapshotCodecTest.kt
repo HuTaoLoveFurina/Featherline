@@ -23,22 +23,10 @@ import com.mkx.hrttracker.model.medication.MedicineStock
 import com.mkx.hrttracker.model.medication.testCustomMedicine
 import com.mkx.hrttracker.model.medication.testMedicationLogEntry
 import com.mkx.hrttracker.model.medication.testMedicine
-import com.mkx.hrttracker.model.pk.E2CalibrationDisposition
-import com.mkx.hrttracker.model.pk.E2CalibrationMetadata
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
-import com.mkx.hrttracker.model.pk.PkCalibrationGlobalState
-import com.mkx.hrttracker.model.pk.PkCalibrationLab
-import com.mkx.hrttracker.model.pk.PkCalibrationLabIgnoreReason
-import com.mkx.hrttracker.model.pk.PkCalibrationPromotedCovariance
-import com.mkx.hrttracker.model.pk.PkCalibrationReason
-import com.mkx.hrttracker.model.pk.PkCalibrationResult
-import com.mkx.hrttracker.model.pk.PkCalibrationRoute
 import com.mkx.hrttracker.model.pk.PkConcentrationUnit
 import com.mkx.hrttracker.model.pk.PkDoseMarker
 import com.mkx.hrttracker.model.pk.PkProjectionResult
-import com.mkx.hrttracker.model.pk.PkRouteCalibrationDisplayState
-import com.mkx.hrttracker.model.pk.PkRouteCalibrationResult
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -112,47 +100,10 @@ class HomeSnapshotCodecTest {
     }
 
     @Test
-    fun encodeDecode_roundTripsWhatTheEstimatesAreDerivedFrom() {
-        // Codec 28: the record carries the fit, the labs and review metadata
-        // it was solved from, the option and the engine, so the estimate can
-        // be derived from the record alone.
-        val latestEntry = testMedicationLogEntry(
-            uuid = UUID.fromString("65c7a865-df3a-4ed3-9e60-1ae6af7b6bd3"),
-            medicine = testMedicine(uuid = UUID.fromString("11111111-1111-1111-1111-111111111111")),
-            sourceGroupUuid = null,
-            appliedAt = Instant.ofEpochMilli(1_777_777L),
-        )
-        val record = minimalRecord().copy(
-            engineVersion = PK_ENGINE_VERSION,
-            latestEstradiolEntry = latestEntry,
-            option = HomeE2ChartWindowOption.THIRTY_DAYS,
-            fit = E2FitRecord(
-                fitId = Digest("ab".repeat(32)),
-                epoch = 2,
-                outcome = FitOutcome.Solved(calibrationResult(), originEpochMillis = 1_700_000_000_000L),
-            ),
-            labs = listOf(
-                PkCalibrationLab(UUID(0L, 1L), collectedAtEpochMillis = 1_700_000_000_000L, valuePgml = 130.0),
-                PkCalibrationLab(UUID(0L, 2L), collectedAtEpochMillis = 1_700_600_000_000L, valuePgml = -1.0),
-            ),
-            labMetadata = listOf(
-                E2CalibrationMetadata(UUID(0L, 1L), E2CalibrationDisposition.REVIEWED, Instant.ofEpochMilli(5L)),
-                E2CalibrationMetadata(UUID(0L, 2L), E2CalibrationDisposition.EXCLUDED, Instant.ofEpochMilli(6L)),
-            ),
-        )
-
-        val decoded = HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(record))
-
-        assertEquals(record, decoded)
-        val failed = record.copy(fit = record.fit?.copy(outcome = FitOutcome.Failed))
-        assertEquals(failed, HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(failed)))
-        assertEquals(minimalRecord(), HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(minimalRecord())))
-    }
-
-    @Test
-    fun aCodec27File_readsAsMissing() = runTest {
-        // An install updated from codec 27 has no record until a build
-        // writes one: the skip-check sees none and rebuilds.
+    fun aCodec28File_readsAsMissing() = runTest {
+        // An install updated from codec 28, which still held the E2 inputs,
+        // has no Home data until a run writes it: the startup check sees the
+        // part missing and asks for one.
         val crypto = object : HomeSnapshotCrypto {
             override fun encrypt(plaintext: ByteArray): ByteArray = plaintext
             override fun decrypt(ciphertext: ByteArray): ByteArray = ciphertext
@@ -163,11 +114,11 @@ class HomeSnapshotCodecTest {
             encode = HomeSnapshotCodec::encode,
             decode = HomeSnapshotCodec::decode,
         )
-        val codec27 = HomeSnapshotCodec.encode(minimalRecord()).also { bytes ->
-            ByteBuffer.wrap(bytes).putInt(0, 27)
+        val codec28 = HomeSnapshotCodec.encode(minimalRecord()).also { bytes ->
+            ByteBuffer.wrap(bytes).putInt(0, 28)
         }
 
-        assertNull(serializer.readFrom(ByteArrayInputStream(codec27)).record)
+        assertNull(serializer.readFrom(ByteArrayInputStream(codec28)).record)
         assertEquals(
             minimalRecord(),
             serializer.readFrom(ByteArrayInputStream(HomeSnapshotCodec.encode(minimalRecord()))).record,
@@ -248,28 +199,12 @@ class HomeSnapshotCodecTest {
             replacedByGroupUuid = UUID.fromString("07ee7f42-94a0-40cb-a68a-2b54850bb5e1"),
             recreatedFromGroupUuid = UUID.fromString("fac484d4-7dc7-4ec4-b410-bb91afc5605d"),
         )
-        val pkRecord = HomePkProjectionRecord(
-            generatedAtEpochMillis = 10L,
-            windowStartEpochMillis = 20L,
-            windowEndEpochMillis = 30L,
-            pkProjectionExpiresAtEpochMillis = 25L,
-            concentrationUnit = PkConcentrationUnit.PG_PER_ML.name,
-            timeH = listOf(0.0, 1.0, 2.0),
-            concentrations = listOf(10.0, 20.0, 30.0),
-            doseMarkers = listOf(
-                HomePkProjectionDoseMarkerRecord(
-                    timeH = 1.0,
-                    concentration = 20.0,
-                )
-            ),
-        )
         val record = HomeSnapshotRecord(
             schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
             generation = 7L,
             generatedAtEpochMillis = 100L,
             anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
             zoneId = "Asia/Tokyo",
-            widgetPkProjection = pkRecord,
             activeGroups = listOf(group),
             scheduleEntries = listOf(latestEntry),
             antiandrogenHistoryEntries = listOf(antiandrogenEntry),
@@ -548,61 +483,6 @@ class HomeSnapshotCodecTest {
     }
 
     @Test
-    fun encodeDecode_roundTripsPkEntriesSharingMedicineAndNullMedicine() {
-        val sharedMedicine = testMedicine(
-            uuid = UUID.fromString("aaaa0000-0000-0000-0000-000000000001"),
-            key = MedicationKey.ESTRADIOL_VALERATE,
-        )
-        val group = UUID.fromString("aaaa0000-0000-0000-0000-0000000000a0")
-        val slot = UUID.fromString("aaaa0000-0000-0000-0000-0000000000b0")
-        val pkEntries = (0 until 3).map { index ->
-            testMedicationLogEntry(
-                uuid = UUID.fromString("aaaa0000-0000-0000-0000-00000000010$index"),
-                medicine = sharedMedicine,
-                category = MedicationCategory.ESTRADIOL,
-                applicationType = MedicationApplicationType.ORAL,
-                doseInstruction = DoseInstruction.TabletFraction(numerator = 1, denominator = 1),
-                equivalentE2Mg = 5.0,
-                sourceGroupUuid = group,
-                scheduleTimeUuid = slot,
-                appliedAt = Instant.ofEpochMilli(1_000L + index),
-                scheduledFor = LocalDateTime.of(2026, 5, index + 1, 8, 0),
-            )
-        } + testMedicationLogEntry(
-            // A PATCH_OFF-style row carries a null medicine; the pooled codec
-            // must round-trip the -1 reference back to null rather than NPE.
-            uuid = UUID.fromString("aaaa0000-0000-0000-0000-0000000001ff"),
-            medicine = null,
-            category = MedicationCategory.ESTRADIOL,
-            applicationType = MedicationApplicationType.PATCH_OFF,
-            doseInstruction = DoseInstruction.Noop,
-            sourceGroupUuid = null,
-            appliedAt = Instant.ofEpochMilli(2_000L),
-        )
-        val record = HomeSnapshotRecord(
-            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
-            generation = 1L,
-            generatedAtEpochMillis = 100L,
-            anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
-            zoneId = "Asia/Tokyo",
-            activeGroups = emptyList(),
-            scheduleEntries = emptyList(),
-            antiandrogenHistoryEntries = emptyList(),
-            pkEntries = pkEntries,
-        )
-
-        val decoded = HomeSnapshotCodec.decode(HomeSnapshotCodec.encode(record))
-
-        assertEquals(record, decoded)
-        // The three estradiol entries must resolve back to the same medicine
-        // identity, and the patch-off row must stay null.
-        assertEquals(
-            listOf(sharedMedicine.uuid, sharedMedicine.uuid, sharedMedicine.uuid, null),
-            decoded.pkEntries.map { it.medicine?.uuid },
-        )
-    }
-
-    @Test
     fun encodeDecode_preservesDoseAmountDelta() {
         val record = HomeSnapshotRecord(
             schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
@@ -693,57 +573,6 @@ class HomeSnapshotCodecTest {
     }
 
     @Test
-    fun encode_dedupesMedicineSharedAcrossPkEntries() {
-        // A medicine shared across many entries must be serialized once. Encode
-        // 40 entries that share one medicine vs 40 that each carry a distinct
-        // medicine; the shared payload should be a fraction of the distinct one.
-        fun recordWith(entries: List<MedicationLogEntry>) = HomeSnapshotRecord(
-            schemaVersion = HOME_SNAPSHOT_SCHEMA_VERSION,
-            generation = 1L,
-            generatedAtEpochMillis = 100L,
-            anchorDateEpochDay = LocalDate.of(2026, 5, 6).toEpochDay(),
-            zoneId = "Asia/Tokyo",
-            activeGroups = emptyList(),
-            scheduleEntries = emptyList(),
-            antiandrogenHistoryEntries = emptyList(),
-            pkEntries = entries,
-        )
-
-        val sharedMedicine = testMedicine(
-            uuid = UUID.fromString("bbbb0000-0000-0000-0000-000000000001"),
-            key = MedicationKey.ESTRADIOL_VALERATE,
-        )
-        val shared = (0 until 40).map { index ->
-            testMedicationLogEntry(
-                uuid = UUID.fromString("bbbb0000-0000-0000-0000-0000000002%02d".format(index)),
-                medicine = sharedMedicine,
-                sourceGroupUuid = null,
-                appliedAt = Instant.ofEpochMilli(1_000L + index),
-            )
-        }
-        val distinct = (0 until 40).map { index ->
-            testMedicationLogEntry(
-                uuid = UUID.fromString("cccc0000-0000-0000-0000-0000000002%02d".format(index)),
-                medicine = testMedicine(
-                    uuid = UUID.fromString("dddd0000-0000-0000-0000-0000000002%02d".format(index)),
-                    key = MedicationKey.ESTRADIOL_VALERATE,
-                ),
-                sourceGroupUuid = null,
-                appliedAt = Instant.ofEpochMilli(1_000L + index),
-            )
-        }
-
-        val sharedSize = HomeSnapshotCodec.encode(recordWith(shared)).size
-        val distinctSize = HomeSnapshotCodec.encode(recordWith(distinct)).size
-
-        assertTrue(
-            "Shared-medicine encoding ($sharedSize B) should be far smaller than " +
-                    "distinct-medicine encoding ($distinctSize B)",
-            sharedSize < distinctSize / 2,
-        )
-    }
-
-    @Test
     fun decode_rejectsLegacyVersionFourPayloadLayout() {
         val bytes = legacyVersionFourBytes()
 
@@ -769,40 +598,6 @@ class HomeSnapshotCodecTest {
             HomeSnapshotCodec.decode(output.toByteArray())
         }
         assertEquals("Unsupported Home snapshot version: 10.", exception.message)
-    }
-
-    @Test
-    fun fit_roundTripsEveryCalibrationResultField_andFailed() {
-        val solved = E2FitRecord(
-            fitId = Digest("ab".repeat(32)),
-            epoch = 3,
-            outcome = FitOutcome.Solved(calibrationResult(), originEpochMillis = 1_700_000_000_000L),
-        )
-        val notReady = solved.copy(
-            outcome = FitOutcome.Solved(PkCalibrationResult(PkCalibrationGlobalState.NO_USABLE_LABS), 0L),
-        )
-        for (fit in listOf(solved, notReady, solved.copy(outcome = FitOutcome.Failed))) {
-            assertEquals(fit, HomeSnapshotCodec.decodeFit(HomeSnapshotCodec.encodeFit(fit)))
-        }
-    }
-
-    @Test
-    fun fit_encodesEqualResultsIdentically_whateverTheirSetAndMapOrder() {
-        // fitKey digests these bytes: iteration order must not reach it.
-        val result = calibrationResult()
-        val reordered = result.copy(
-            routeResults = result.routeResults.map { row ->
-                row.copy(
-                    reasons = row.reasons.reversed().toSet(),
-                    unreviewedOutlierLabIds = row.unreviewedOutlierLabIds.reversed().toSet(),
-                )
-            },
-            ignoredLabs = result.ignoredLabs.entries.reversed().associate { (id, reason) -> id to reason },
-        )
-        assertEquals(result, reordered)
-        fun bytes(result: PkCalibrationResult) =
-            HomeSnapshotCodec.encodeFit(E2FitRecord(Digest("00"), 0, FitOutcome.Solved(result, 0L)))
-        assertArrayEquals(bytes(result), bytes(reordered))
     }
 
     @Test
@@ -855,43 +650,6 @@ class HomeSnapshotCodecTest {
         val otherVersion = HomeSnapshotCodec.encodeHomeEstimate(record).also { bytes -> bytes[3] = 2 }
         assertThrows(IllegalArgumentException::class.java) { HomeSnapshotCodec.decodeHomeEstimate(otherVersion) }
     }
-
-    private fun calibrationResult() = PkCalibrationResult(
-        globalState = PkCalibrationGlobalState.READY,
-        routeResults = PkCalibrationRoute.entries.map { route ->
-            when (route) {
-                PkCalibrationRoute.INJECTION -> PkRouteCalibrationResult(
-                    route = route,
-                    displayState = PkRouteCalibrationDisplayState.LAB_ADJUSTED_PROVISIONAL,
-                    reasons = setOf(PkCalibrationReason.UNCERTAIN, PkCalibrationReason.UNREVIEWED_OUTLIER),
-                    fittedBeta = 0.4,
-                    betaPosteriorSd = 0.25,
-                    supportingLabCount = 2,
-                    minStudentTWeight = 0.2,
-                    unreviewedOutlierLabIds = setOf(UUID(0L, 7L), UUID(0L, 3L)),
-                )
-
-                PkCalibrationRoute.ORAL -> PkRouteCalibrationResult(
-                    route = route,
-                    displayState = PkRouteCalibrationDisplayState.LAB_CALIBRATED,
-                    fittedBeta = -0.1,
-                    betaPosteriorSd = 0.05,
-                    supportingLabCount = 4,
-                    minStudentTWeight = 0.9,
-                )
-
-                else -> PkRouteCalibrationResult(route, PkRouteCalibrationDisplayState.POPULATION_NO_LAB_SIGNAL)
-            }
-        },
-        promotedBetaCovariance = PkCalibrationPromotedCovariance(
-            routes = listOf(PkCalibrationRoute.INJECTION, PkCalibrationRoute.ORAL),
-            values = listOf(listOf(0.0625, -0.001), listOf(-0.001, 0.0025)),
-        ),
-        ignoredLabs = mapOf(
-            UUID(0L, 9L) to PkCalibrationLabIgnoreReason.BELOW_INFORMATIVE_SIGNAL,
-            UUID(0L, 5L) to PkCalibrationLabIgnoreReason.NON_POSITIVE_VALUE,
-        ),
-    )
 
     @Test
     fun decode_normalizesLegacyEmptyOpenContainerStock() {

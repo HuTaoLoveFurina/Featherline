@@ -116,9 +116,9 @@ class QuickLogActionCallback : ActionCallback {
             )
 
             if (missingEntries.isNotEmpty()) {
-                // saveNewEntries goes through runHomeDataMutation, which rewrites the home
-                // snapshot. HomeWidgetManager's home-snapshot observer picks that up and
-                // re-derives the widget snapshot — no explicit widget refresh needed.
+                // saveNewEntries goes through runHomeDataMutation, which asks for a run.
+                // HomeWidgetManager's cache observer picks up its publish and re-derives
+                // the widget snapshot — no explicit widget refresh needed.
                 // Snapshot stock before the deduction so the toast only fires for
                 // medicines this quick-log pushed into a worse tier.
                 val beforeStockStates = captureStockStatesForLog(
@@ -134,12 +134,12 @@ class QuickLogActionCallback : ActionCallback {
                     beforeStatesByUuid = beforeStockStates,
                     hideMedicationDetails = settingsRepository.getCurrentSettings().hideMedicationDetails,
                 )
-                // Finish only once the log's rebuild and its warm-up stored
-                // Home's estimate, so the next open shows it at once. Bounded
-                // by what is left of the budget; the rebuild itself carries on
-                // in the app scope.
+                // Finish only once a run that read the log, and its warm-up,
+                // stored Home's estimate, so the next open shows it at once.
+                // Bounded by what is left of the budget; the run itself
+                // carries on in the app scope.
                 val rebuilt = withTimeoutOrNull(-deadline.elapsedNow()) {
-                    entryPoint.homeSnapshotRepository().awaitRebuild()
+                    entryPoint.homeSnapshotRepository().rebuildNow()
                 }
                 if (rebuilt == null) {
                     diagnosticsLogger.warning(TAG, "widget_quick_log_rebuild_timeout")
