@@ -15,8 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Edits that can't change the estimate, such as recounting stock, renaming a medicine, logging an antiandrogen dose, pinning a Journal date, editing a result's notes or adding a result without an estradiol value, no longer show the refresh indicator under the top bar, and no longer hold the estradiol card on Home or the Estimate calibration section on the calibration page.
-- After a change that moves the estimate, such as logging an estradiol dose, adding or reviewing an estradiol result, or switching the chart between 7 and 30 days, the refresh indicator appears once the new data is ready, a moment after the tap, instead of right away.
 - When you come back to the app after the estimate has moved, for example after a planned dose's time passed with reminders off, the estradiol card and chart can show a loading placeholder for a moment before the new estimate appears. The calibration page can show its loading indicator for a moment the same way, for example when you come back to it after midnight.
 - The app no longer works out your estimate calibration again each time it starts or you change something. It does so only when something the calibration uses changes (your estradiol results or how you reviewed them, your estradiol doses or your weight), after an app update that changes how estimates are worked out, or when you tap Try again.
 - The Estimate calibration section and the estimate sheet on Home now use the same estradiol doses as the Home chart, with days that start at midnight like it, so where they overlap they show the same band. Near the ends of the calibration page's range, its estimate can differ very slightly from before.
