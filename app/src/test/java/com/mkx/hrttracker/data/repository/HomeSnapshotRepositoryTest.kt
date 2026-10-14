@@ -922,10 +922,14 @@ class HomeSnapshotRepositoryTest {
 
             // From 180 days before the calibration page's domain, 17 days
             // back, for every option, and through whatever is logged ahead.
+            // One read, which also serves the calibration's dose window: 180
+            // days before the first lab, 20 days back, the earlier start.
             val pageLookback = now.toLocalDate().minusDays(17).atStartOfDay(zoneId).toInstant()
                 .minus(PK_CALIBRATION_DOSE_LOOKBACK)
-            val pkRead = room.pkReads.first()
-            assertEquals(pageLookback.toEpochMilli(), pkRead.first)
+            val calibrationStart = now.toLocalDate().minusDays(20).atTime(9, 0).atZone(zoneId)
+                .toInstant().minus(PK_CALIBRATION_DOSE_LOOKBACK)
+            val pkRead = room.pkReads.single()
+            assertEquals(calibrationStart.toEpochMilli(), pkRead.first)
             assertEquals(Long.MAX_VALUE, pkRead.last)
             val inputs = writtenInputs.single()
             assertEquals(

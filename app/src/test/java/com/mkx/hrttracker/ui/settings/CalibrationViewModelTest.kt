@@ -178,6 +178,29 @@ class CalibrationViewModelTest {
     }
 
     @Test
+    fun aDerivationStartingAfterTheListShows_neverTakesThePageBackToLoading() = runTest {
+        // Opened while a run is going: nothing to derive from, so the list
+        // shows alone. The run publishes and the section is derived; the
+        // section then appears above the list, with no loading state between.
+        every { repository.observePanels() } returns flowOf(listOf(testBloodTestPanel()))
+        calibrationEstimates.value = E2State(null)
+        val viewModel = viewModel()
+        val sections = collectSections(viewModel)
+        advanceUntilIdle()
+        val pages = collectPages(viewModel)
+        assertFalse(viewModel.uiState.value.isLoading)
+        assertNull(sections.last())
+
+        calibrationEstimates.value = E2State(null, E2Pending.SYSTEM)
+        advanceUntilIdle()
+        calibrationEstimates.value = E2State(estimate())
+        advanceUntilIdle()
+
+        assertEquals(PkCalibrationGlobalState.NO_USABLE_LABS, sections.last()?.ui?.globalState)
+        assertTrue(pages.none { page -> page.isLoading })
+    }
+
+    @Test
     fun aReturn_throughTheEstimator_showsAMovedKeyAlreadyDerived_inline() = runTest {
         // The real estimator rather than one stubbed flow. A review lands
         // while the app is away, and the result editor, which keeps

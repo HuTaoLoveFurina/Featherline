@@ -366,13 +366,6 @@ class HomeSnapshotRepository @Inject constructor(
             val antiandrogenHistoryEntities = homeDao.getLatestAntiandrogenEntriesOnOrBefore(
                 onOrBeforeEpochMillis = snapshotWindow.onOrBeforeEpochMillis,
             )
-            // From every estimate's PK lookback, the calibration page's
-            // included, whatever the option, with no upper bound: one read
-            // serves every option, so a 7/30 switch needs no other query.
-            val pkEntries = homeDao.getEstradiolPkEntries(
-                startEpochMillis = E2Derivation.loggedEntriesStart(now, zoneId).toEpochMilli(),
-                endEpochMillis = Long.MAX_VALUE,
-            )
             val latestEstradiolEntryEntity = homeDao.getLatestEstradiolEntryOnOrBefore(
                 onOrBeforeEpochMillis = snapshotWindow.onOrBeforeEpochMillis,
             )
@@ -407,14 +400,25 @@ class HomeSnapshotRepository @Inject constructor(
                         )
                     }
             }
-            val calibrationEntryEntities = calibrationDoseWindowStartEpochMillis(calibrationLabs)
-                ?.let { startEpochMillis ->
-                    homeDao.getEstradiolPkEntries(
-                        startEpochMillis = startEpochMillis,
-                        endEpochMillis = Long.MAX_VALUE,
-                    )
-                }
-                .orEmpty()
+            // The estimates read from every estimate's PK lookback, the
+            // calibration page's included, whatever the option, with no
+            // upper bound: one read serves every option, so a 7/30 switch
+            // needs no other query. The calibration reads from its dose
+            // window. Both come from one read from the earlier start; newest
+            // first, so each is a prefix of it.
+            val pkEntriesStartEpochMillis = E2Derivation.loggedEntriesStart(now, zoneId).toEpochMilli()
+            val calibrationEntriesStartEpochMillis = calibrationDoseWindowStartEpochMillis(calibrationLabs)
+            val estradiolEntities = homeDao.getEstradiolPkEntries(
+                startEpochMillis = minOf(
+                    pkEntriesStartEpochMillis,
+                    calibrationEntriesStartEpochMillis ?: pkEntriesStartEpochMillis,
+                ),
+                endEpochMillis = Long.MAX_VALUE,
+            )
+            fun estradiolEntitiesFrom(startEpochMillis: Long) =
+                estradiolEntities.takeWhile { entry -> entry.appliedAtEpochMillis >= startEpochMillis }
+            val pkEntries = estradiolEntitiesFrom(pkEntriesStartEpochMillis)
+            val calibrationEntryEntities = calibrationEntriesStartEpochMillis?.let(::estradiolEntitiesFrom).orEmpty()
             // Whenever it is logged for: buildPkCalibrationInput keeps it when
             // every dose predates the lab window. Without labs it is the only
             // dose read, since the solve then only tells no dose history from
@@ -429,9 +433,9 @@ class HomeSnapshotRepository @Inject constructor(
                 activeGroupEntities + archivedGroupEntities
             )
             val entryMedicinesByUuid = database.resolveMedicinesForEntries(
-                scheduleEntryEntities + antiandrogenHistoryEntities + pkEntries +
+                scheduleEntryEntities + antiandrogenHistoryEntities + estradiolEntities +
                         listOfNotNull(latestEstradiolEntryEntity) + stockFulfillmentEntities +
-                        calibrationEntryEntities + listOfNotNull(latestCalibrationEntryEntity)
+                        listOfNotNull(latestCalibrationEntryEntity)
             )
             val activeGroups = activeGroupEntities.map { group ->
                 group.toMedicationGroupModel(groupMedicinesByUuid)
@@ -445,7 +449,7 @@ class HomeSnapshotRepository @Inject constructor(
             val antiandrogenHistoryEntries = antiandrogenHistoryEntities.map { entry ->
                 entry.toMedicationLogEntryModel(entryMedicinesByUuid)
             }
-            val pkEntryModels = pkEntries.map { entry ->
+            val estradiolEntries = estradiolEntities.map { entry ->
                 entry.toMedicationLogEntryModel(entryMedicinesByUuid)
             }
             val latestEstradiolEntry = latestEstradiolEntryEntity?.toMedicationLogEntryModel(
@@ -458,15 +462,16 @@ class HomeSnapshotRepository @Inject constructor(
             HomeSnapshotBuildInputs(
                 calibrationLabs = calibrationLabs,
                 // Plus the latest dose.
-                calibrationEntries = (calibrationEntryEntities + listOfNotNull(latestCalibrationEntryEntity))
-                    .distinctBy { entry -> entry.uuid }
-                    .map { entry -> entry.toMedicationLogEntryModel(entryMedicinesByUuid) },
+                calibrationEntries = (
+                    estradiolEntries.take(calibrationEntryEntities.size) +
+                        listOfNotNull(latestCalibrationEntryEntity?.toMedicationLogEntryModel(entryMedicinesByUuid))
+                    ).distinctBy { entry -> entry.uuid },
                 calibrationMetadata = calibrationMetadata,
                 activeGroups = activeGroups,
                 archivedGroups = archivedGroups,
                 scheduleEntries = scheduleEntries,
                 antiandrogenHistoryEntries = antiandrogenHistoryEntries,
-                pkEntries = pkEntryModels,
+                pkEntries = estradiolEntries.take(pkEntries.size),
                 latestEstradiolEntry = latestEstradiolEntry,
                 profile = database.userProfileDao()
                     .getProfile()

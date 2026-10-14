@@ -609,7 +609,9 @@ Digests are SHA-256 over the codec's canonical encoding, so a stored key
 compares correctly across processes. No derivation reads the clock except
 through its key, so two derivations with one key give the same output,
 and nothing expires: when a key moves, the estimate is derived again,
-about 150 ms in a release build, with no Room read and no solve. A memo
+about 150 ms in a release build, with no Room read and no solve. Rebuilding
+a key each minute re-encodes only Home's planned slots: the fit's and
+the logged doses' digests are kept per published inputs and window. A memo
 keeps the last two keys of each kind, done or in flight, shared by every
 observer and the warm-up. A derivation that throws is kept in the memo,
 so it isn't retried on every tick, but never stored. The last Home
@@ -665,7 +667,10 @@ was last collected.
   from the background, without an estimate for the current inputs and
   clock: Home's E2 hero, chart, band and calibration notes, and the
   calibration page's estimate section, show a skeleton until it is
-  derived. A background job usually warmed it first.
+  derived. A background job usually warmed it first. A calibration page
+  already showing its lab list without the section, opened while there
+  was nothing to derive it from, keeps the list while a run's inputs
+  are derived, and the section appears when they are.
 - **Hold.** In the foreground, a change the user made commits a gated
   mutation (`USER`). Both screens keep their settled estimate and show
   `TopUpdatingIndicator` until the new one lands, through

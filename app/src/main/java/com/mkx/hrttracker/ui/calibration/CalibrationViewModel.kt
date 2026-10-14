@@ -52,6 +52,10 @@ class CalibrationViewModel @Inject constructor(
 
     private val screenVisible = MutableStateFlow(false)
 
+    // Whether the last state showed the lab list without the section. Only
+    // the states below read and write it, one at a time on Main.
+    private var showingListAlone = false
+
     /**
      * The lab adjustment section, held while a change the user made is
      * derived; the lab list shows the change at once. Observed from the
@@ -99,16 +103,23 @@ class CalibrationViewModel @Inject constructor(
         panels: List<BloodTestPanel>?,
         held: Held<E2State<CalibrationEstimate>>,
         settingsState: SettingsState,
-    ) = CalibrationUiState(
-        panels = panels.orEmpty(),
-        settingsState = settingsState,
+    ): CalibrationUiState {
         // Loading also waits while the estimate section is derived, so it is
         // in the first rendered frame rather than popping in above the lab
         // list. With nothing to derive it from (a rebuild pending, or one
-        // that keeps failing), the live lab list shows without it.
-        isLoading = panels == null || (held.value.value == null && held.value.pending != null),
-        isUpdating = held.isUpdating,
-    )
+        // that keeps failing), the live lab list shows without it, and keeps
+        // showing while a derivation that starts later runs: the section
+        // appears when derived, rather than the page going back to loading.
+        val isLoading = panels == null ||
+            (held.value.value == null && held.value.pending != null && !showingListAlone)
+        showingListAlone = !isLoading && held.value.value == null
+        return CalibrationUiState(
+            panels = panels.orEmpty(),
+            settingsState = settingsState,
+            isLoading = isLoading,
+            isUpdating = held.isUpdating,
+        )
+    }
 
     /**
      * The status-surface projection. Null while the section loads, or while

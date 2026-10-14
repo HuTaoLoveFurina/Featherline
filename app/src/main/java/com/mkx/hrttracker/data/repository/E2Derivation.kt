@@ -259,7 +259,7 @@ object E2Derivation {
             engine = PK_ENGINE_VERSION,
             fitKey = inputs.fit?.let(::fitKey),
             weightKg = PkMedicationSimulation.resolvedBodyWeightKg(inputs.weightKg),
-            logged = doseEventsDigest(loggedSince(inputs, chartStart(now, zoneId, inputs.option)), isPlanned = false),
+            logged = loggedDigest(inputs, chartStart(now, zoneId, inputs.option)),
             planned = doseEventsDigest(plannedEntries(inputs, now, zoneId), isPlanned = true),
             option = inputs.option,
             windowDate = now.toLocalDate(),
@@ -272,10 +272,7 @@ object E2Derivation {
             engine = PK_ENGINE_VERSION,
             fitKey = inputs.fit?.let(::fitKey),
             weightKg = PkMedicationSimulation.resolvedBodyWeightKg(inputs.weightKg),
-            logged = doseEventsDigest(
-                loggedSince(inputs, chartStart(now, zoneId, HomeE2ChartWindowOption.SEVEN_DAYS)),
-                isPlanned = false,
-            ),
+            logged = loggedDigest(inputs, chartStart(now, zoneId, HomeE2ChartWindowOption.SEVEN_DAYS)),
             windowDate = now.toLocalDate(),
             zoneId = zoneId.id,
         )
@@ -286,7 +283,7 @@ object E2Derivation {
             engine = PK_ENGINE_VERSION,
             fitKey = inputs.fit?.let(::fitKey),
             weightKg = PkMedicationSimulation.resolvedBodyWeightKg(inputs.weightKg),
-            logged = doseEventsDigest(loggedSince(inputs, calibrationDomainStart(now, zoneId)), isPlanned = false),
+            logged = loggedDigest(inputs, calibrationDomainStart(now, zoneId)),
             option = inputs.option,
             windowDate = now.toLocalDate(),
             zoneId = zoneId.id,
@@ -358,7 +355,34 @@ object E2Derivation {
     fun fitId(input: PkCalibrationInput): Digest = Digest.of(HomeSnapshotCodec.encodeFitInput(input))
 
     /** The whole fit record: a new outcome or epoch changes every key built on it. */
-    fun fitKey(fit: E2FitRecord): Digest = Digest.of(HomeSnapshotCodec.encodeFit(fit))
+    fun fitKey(fit: E2FitRecord): Digest =
+        fitKeys.memo({ (record, _) -> record === fit }) { fit to Digest.of(HomeSnapshotCodec.encodeFit(fit)) }.second
+
+    // Every key is rebuilt each minute, from the inputs instance a run
+    // published: its fit and logged entries stay the same objects until the
+    // next publish, and the windows move only with the date, so their
+    // digests are reused rather than re-encoded on the observer's thread.
+    // ponytail: four slots each, matched by identity: Home, the calibration
+    // page and the widget each read one window. Widen if more observers show up.
+    private val fitKeys = ArrayDeque<Pair<E2FitRecord, Digest>>()
+    private val loggedDigests = ArrayDeque<Triple<List<MedicationLogEntry>, Instant, Digest>>()
+
+    private fun loggedDigest(inputs: E2Inputs, windowStart: Instant): Digest {
+        val entries = inputs.estradiolEntries
+        return loggedDigests.memo({ (list, start) -> list === entries && start == windowStart }) {
+            Triple(entries, windowStart, doseEventsDigest(loggedSince(inputs, windowStart), isPlanned = false))
+        }.third
+    }
+
+    /** The slot [matches] finds, or [compute]'s, kept as the newest. Computed outside the lock. */
+    private fun <T> ArrayDeque<T>.memo(matches: (T) -> Boolean, compute: () -> T): T =
+        synchronized(this) { firstOrNull(matches) }
+            ?: compute().also { slot ->
+                synchronized(this) {
+                    addFirst(slot)
+                    if (size > MEMO_SLOTS) removeLast()
+                }
+            }
 
     private fun renderFit(
         solved: FitOutcome.Solved,
@@ -439,6 +463,8 @@ internal data class HomePkChartWindow(
         }
     }
 }
+
+private const val MEMO_SLOTS = 4
 
 private const val BAND_SAMPLING_INTERVAL_MILLIS = 6L * 60L * 60L * 1_000L
 

@@ -45,8 +45,10 @@ import com.mkx.hrttracker.model.pk.projectionFutureDays
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
@@ -222,6 +224,33 @@ class E2DerivationTest {
         val render = E2Derivation.deriveCalibrationRender(inputs, morning, zoneId)
         assertEquals(PkCalibrationBandState.READY, render?.bandState)
         assertEquals(render, E2Derivation.deriveCalibrationRender(inputs, night, zoneId))
+    }
+
+    @Test
+    fun keys_reuseTheInputsDigests_untilTheFitOrTheEntriesAreNewObjects() {
+        val inputs = inputs()
+        val home = E2Derivation.homeEstimateKey(inputs, now, zoneId)
+        val page = E2Derivation.calibrationRenderKey(inputs, now, zoneId)
+
+        // The next minute, from the same published inputs: the same digests,
+        // not re-encoded, for every observer at once.
+        val nextHome = E2Derivation.homeEstimateKey(inputs, now.plusMinutes(1), zoneId)
+        assertSame(home.fitKey, nextHome.fitKey)
+        assertSame(home.logged, nextHome.logged)
+        assertSame(page.logged, E2Derivation.calibrationRenderKey(inputs, now.plusMinutes(1), zoneId).logged)
+        assertSame(home.fitKey, E2Derivation.widgetEstimateKey(inputs, now, zoneId).fitKey)
+
+        // A publish: equal contents in new objects are digested again, to the same value.
+        val republished = inputs.copy(
+            estradiolEntries = inputs.estradiolEntries.toList(),
+            fit = checkNotNull(inputs.fit).copy(),
+        )
+        val again = E2Derivation.homeEstimateKey(republished, now, zoneId)
+        assertNotSame(home.fitKey, again.fitKey)
+        assertNotSame(home.logged, again.logged)
+        assertEquals(home, again)
+        // A new day moves the window: the same entries are digested for it.
+        assertNotSame(page.logged, E2Derivation.calibrationRenderKey(inputs, now.plusDays(1), zoneId).logged)
     }
 
     @Test
