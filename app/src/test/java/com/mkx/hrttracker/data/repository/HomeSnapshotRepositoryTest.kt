@@ -611,16 +611,27 @@ class HomeSnapshotRepositoryTest {
             throw IOException("database open failed")
         }
         val repository = repository()
+        // What an observation would read of the worker at each bump.
+        val rebuildingAtBumps = mutableListOf<Boolean>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            repository.generation.collect { rebuildingAtBumps += repository.rebuilding.value }
+        }
 
         repository.runHomeDataMutation {}
+        // Pending from the commit, before the worker takes the run up: never
+        // seen behind the mutation and idle, which would read as a give-up.
+        assertEquals(listOf(false, true), rebuildingAtBumps)
+        assertTrue(repository.rebuilding.value)
         attempts.first { times -> times.size == 1 }
         // An observation behind the mutation, at its minute: no sooner retry.
         repository.requestRebuildIfIdle()
         val times = attempts.first { times -> times.size == 4 }
+        assertTrue(repository.rebuilding.value)
         advanceTimeBy(10 * 60_000L)
         settle()
         assertEquals(listOf(0L, 1_000L, 6_000L, 36_000L), times.map { time -> time - times.first() })
         assertEquals(4, attempts.value.size)
+        assertFalse(repository.rebuilding.value)
 
         // Given up: the observation's next minute starts a run, which converges.
         coEvery { databaseHolder.awaitOpen() } returns database
@@ -639,6 +650,8 @@ class HomeSnapshotRepositoryTest {
         lateinit var repository: HomeSnapshotRepository
         coEvery { e2EstimateRepository.warmHome() } answers { warmed += repository.cache.value?.generation }
         repository = repository()
+        val rebuilding = mutableListOf<Boolean>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { repository.rebuilding.collect { rebuilding += it } }
         val pause = pauseNextRead()
 
         repository.runHomeDataMutation {}
@@ -647,6 +660,10 @@ class HomeSnapshotRepositoryTest {
         repository.runHomeDataMutation {}
         pause.release.complete(Unit)
         waiting.await()
+        settle()
+
+        // The discarded run's follow-up never shows the worker idle.
+        assertEquals(listOf(false, true, false), rebuilding)
 
         assertEquals(2L, repository.cache.value?.generation)
         assertEquals(listOf(2L), writtenSnapshots.map { record -> record.generation })

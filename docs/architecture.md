@@ -499,11 +499,13 @@ reads Room to build them.
   estimate. A run a mutation overtook publishes and writes nothing: the
   mutation's own run follows. A run that throws is retried after 1 s,
   5 s and 30 s, or at once on a newer request, and then waits for the
-  next request. From a request's receipt until it waits again, the
-  worker is busy, and `requestRebuildIfIdle()` asks for nothing; a run
-  takes the requests already made under the gate's lock, so one asked
-  for while a mutation holds it is answered by the run that reads its
-  commit.
+  next request. While a run is pending or going, retries included,
+  `rebuilding` is true and `requestRebuildIfIdle()` asks for nothing; a
+  mutation sets it under the gate's lock before the bump, and the worker
+  clears it under that lock only with no request waiting, so false behind
+  a mutation means the worker gave up. A run takes the requests already
+  made under the gate's lock, so one asked for while a mutation holds it
+  is answered by the run that reads its commit.
 - **`cache`.** `HomeSnapshotRepository.cache` holds
   `HomeCacheState(generation, homeData, e2Inputs)`. It is null until the
   disk load, which seeds each part only from a file that is valid at the
@@ -513,7 +515,7 @@ reads Room to build them.
   one (`currentCache`, `currentState()`).
 - **Triggers.** A run is asked for by each gated mutation; by the load,
   when a part is missing; by an estimate observation whose inputs aren't
-  current, while the worker isn't busy; and by a widget refresh without
+  current, while the worker isn't `rebuilding`; and by a widget refresh without
   a current state that has both parts. Requests carry nothing: a run reads everything it needs
   itself. Nothing checks the date or the zone in memory, and no
   in-process ticker watches them: Home data goes invalid by date only
@@ -688,7 +690,10 @@ was last collected.
   last-dose line, which is live Room data. Home builds the screen from
   the latest inputs and the E2 hero, chart and band from the held
   estimate, both at the live time and display unit, so a unit switch or
-  midnight during a hold still renders correctly.
+  midnight during a hold still renders correctly. If the worker gives
+  up on the mutation's run, the hold releases and the last estimate
+  stays; the observations' per-minute re-asks for that generation run
+  silently, and their publish shows the new estimate as a user change.
 - **Silent swap.** In the foreground, time or the system moves the key
   (`SYSTEM`): a planned slot passing, midnight, a zone change. The
   screens keep the estimate and swap to the new one once it is derived,

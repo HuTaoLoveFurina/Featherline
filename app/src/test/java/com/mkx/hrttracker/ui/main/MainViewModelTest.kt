@@ -1827,6 +1827,30 @@ class MainViewModelTest {
     }
 
     @Test
+    fun aUserHold_whoseRunTheWorkerGaveUpOn_releasesTheIndicator_keepingTheEstimate() = runTest {
+        val now = LocalDateTime.of(2026, 4, 30, 12, 0)
+        every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))
+        homeEstimates.value = E2State(estimate(trend(current = 124.0), now))
+        val viewModel = viewModel(now)
+        viewModel.setScreenVisible(true)
+        startUiStateCollection(viewModel)
+        advanceUntilIdle()
+
+        homeEstimates.value = homeEstimates.value.copy(pending = E2Pending.USER)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.isUpdating)
+
+        // Four failed attempts later the hold releases with the same value.
+        advanceTimeBy(36_000L)
+        homeEstimates.value = homeEstimates.value.copy(pending = null)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isUpdating)
+        assertTrue(viewModel.uiState.value.hasE2Estimate)
+        assertEquals(124.0, viewModel.uiState.value.e2Hero.currentValue, 1e-9)
+    }
+
+    @Test
     fun theClockOrTheSystemMovingTheEstimate_swapsItSilently() = runTest {
         val now = LocalDateTime.of(2026, 4, 30, 12, 0)
         every { homeRepository.observeHomeInputs(any(), any(), any()) } returns flowOf(homeInputs(now = now))

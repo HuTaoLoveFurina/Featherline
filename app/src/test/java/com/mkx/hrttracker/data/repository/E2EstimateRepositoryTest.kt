@@ -110,12 +110,13 @@ class E2EstimateRepositoryTest {
 
     // Whether the worker has a run pending or going, and the runs the
     // observations asked for while it had none.
-    private var workerBusy = false
+    private val rebuilding = MutableStateFlow(false)
     private var runsAsked = 0
     private val homeSnapshotRepository: HomeSnapshotRepository = mockk(relaxed = true) {
         every { cache } returns this@E2EstimateRepositoryTest.cache
         every { generation } returns this@E2EstimateRepositoryTest.generation
-        every { requestRebuildIfIdle() } answers { if (!workerBusy) runsAsked++ }
+        every { rebuilding } returns this@E2EstimateRepositoryTest.rebuilding
+        every { requestRebuildIfIdle() } answers { if (!rebuilding.value) runsAsked++ }
     }
 
     private var stored: HomeE2EstimateRecord? = null
@@ -191,14 +192,14 @@ class E2EstimateRepositoryTest {
         val estimates = estimates()
 
         // The startup's own run is going: the observation adds none.
-        workerBusy = true
+        rebuilding.value = true
         val states = observe(estimates)
         runCurrent()
         assertEquals(0, runsAsked)
 
         // With none going, as after that run failed for good, it asks.
         stopAll()
-        workerBusy = false
+        rebuilding.value = false
         val again = observe(estimates)
         runCurrent()
 
@@ -288,8 +289,7 @@ class E2EstimateRepositoryTest {
         // inputs and the stored estimate still match each other, but the
         // inputs are behind the durable generation. The shown value holds,
         // a change someone made.
-        workerBusy = true
-        generation.value = 1L
+        commit(1L)
         runCurrent()
         assertEquals(E2State(shown, E2Pending.USER), running.last())
 
@@ -312,15 +312,14 @@ class E2EstimateRepositoryTest {
 
         // A mutation commits, and its run is going or backing off: nothing
         // to ask for, at the bump or at the next minute.
-        workerBusy = true
-        generation.value = 1L
+        commit(1L)
         runCurrent()
         setNow(beforeSlot.plusMinutes(1))
         runCurrent()
         assertEquals(0, runsAsked)
 
         // The run failed for good: each minute asks again while it is behind.
-        workerBusy = false
+        rebuilding.value = false
         setNow(beforeSlot.plusMinutes(2))
         runCurrent()
         assertEquals(1, runsAsked)
@@ -348,7 +347,7 @@ class E2EstimateRepositoryTest {
 
         // Logging a dose: a gated change, so the next record's generation is newer.
         val withDose = logged + dose(today.minusDays(1).atTime(12, 0))
-        generation.value = 1L
+        commit(1L)
         publish(record(generation = 1L, logged = withDose))
         runCurrent()
         val afterLog = checkNotNull(states.last().value)
@@ -375,7 +374,7 @@ class E2EstimateRepositoryTest {
 
         // A stock recount: a gated change whose E2 inputs are the same. Held
         // through its run; the key doesn't move, so the publish releases it.
-        generation.value = 1L
+        commit(1L)
         runCurrent()
         publish(record(generation = 1L))
         runCurrent()
@@ -386,6 +385,42 @@ class E2EstimateRepositoryTest {
         runCurrent()
         assertEquals(E2State(shown, E2Pending.SYSTEM), states[before + 2])
         assertEquals(1 + 1, derivations)
+    }
+
+    @Test
+    fun aHold_releasesWhenTheWorkerGivesUp_keepingTheValue_andTheReAsksDontHoldAgain() = runTest {
+        publish(record())
+        val estimates = estimates()
+        val states = observe(estimates)
+        runCurrent()
+        val shown = checkNotNull(states.last().value)
+
+        // A logged dose: held while its run is pending or going, retries included.
+        commit(1L)
+        runCurrent()
+        assertEquals(E2State(shown, E2Pending.USER), states.last())
+
+        // The run failed four times: the value stays, released, nothing admitted.
+        rebuilding.value = false
+        runCurrent()
+        assertEquals(E2State(shown, null), states.last())
+        assertEquals(0, runsAsked)
+
+        // The next minute asks again, and that run goes: silent for the same generation.
+        setNow(beforeSlot.plusMinutes(1))
+        runCurrent()
+        assertEquals(1, runsAsked)
+        rebuilding.value = true
+        runCurrent()
+        assertEquals(E2State(shown, null), states.last())
+
+        // Its publish: the user's change, derived, then shown.
+        val before = states.size
+        publish(record(generation = 1L, logged = logged + dose(today.minusDays(1).atTime(12, 0))))
+        runCurrent()
+        assertEquals(E2State(shown, E2Pending.USER), states[before])
+        assertNull(states.last().pending)
+        assertTrue(checkNotNull(states.last().value) !== shown)
     }
 
     @Test
@@ -497,7 +532,7 @@ class E2EstimateRepositoryTest {
         runCurrent()
         assertNull(checkNotNull(states.last().value).calibration)
 
-        generation.value = 1L
+        commit(1L)
         publish(record(generation = 1L, fit = solvedFit(epoch = 1)))
         runCurrent()
 
@@ -533,7 +568,7 @@ class E2EstimateRepositoryTest {
         assertTrue(checkNotNull(states.last().value).bandKnots.isEmpty())
         assertEquals(0, writes)
 
-        generation.value = 1L
+        commit(1L)
         publish(record(generation = 1L, fit = solvedFit(epoch = 1)))
         runCurrent()
 
@@ -559,7 +594,7 @@ class E2EstimateRepositoryTest {
     @Test
     fun warmHome_leavesInputsThatArentCurrent_alone() = runTest {
         publish(record())
-        generation.value = 1L
+        commit(1L)
         val estimates = estimates()
 
         backgroundScope.launch { estimates.warmHome() }
@@ -627,7 +662,7 @@ class E2EstimateRepositoryTest {
         val shown = checkNotNull(states.last().value)
 
         // A logged dose whose estimate fails: the value stays, nothing pending.
-        generation.value = 1L
+        commit(1L)
         publish(record(generation = 1L, logged = logged + extra))
         runCurrent()
         assertEquals(E2State(shown, null), states.last())
@@ -661,7 +696,7 @@ class E2EstimateRepositoryTest {
         assertEquals(1, derivations)
 
         // A derivation updates it too.
-        generation.value = 1L
+        commit(1L)
         publish(record(generation = 1L, weightKg = 70.0))
         runCurrent()
         assertSame(states.last().value, estimates.latestHome.value)
@@ -736,7 +771,7 @@ class E2EstimateRepositoryTest {
 
         // Accepting a lab: a gated change whose re-solved fit moves the key.
         val review = listOf(E2CalibrationMetadata(fitLabs.first().resultId, E2CalibrationDisposition.REVIEWED, Instant.EPOCH))
-        generation.value = 1L
+        commit(1L)
         publish(record(generation = 1L, fit = solvedFit(epoch = 0, metadata = review), labMetadata = review))
         runCurrent()
         val reviewed = checkNotNull(states.last().value)
@@ -764,7 +799,7 @@ class E2EstimateRepositoryTest {
 
         // A stock recount, its stored fit reused, held through its run; then
         // the morning slot passing, which moves Home's key but not the page's.
-        generation.value = 1L
+        commit(1L)
         runCurrent()
         publish(record(generation = 1L, fit = solvedFit(epoch = 0)))
         runCurrent()
@@ -904,6 +939,12 @@ class E2EstimateRepositoryTest {
     )
 
     /** A run's publish: its E2 inputs, at their generation. */
+    // A gated mutation's commit: its run pending, then the bump.
+    private fun commit(generation: Long) {
+        rebuilding.value = true
+        this.generation.value = generation
+    }
+
     private fun publish(inputs: E2InputsRecord) {
         cache.value = HomeCacheState(inputs.generation, homeData = null, e2Inputs = inputs)
     }

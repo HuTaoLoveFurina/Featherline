@@ -119,10 +119,18 @@ class HomeSnapshotRepository @Inject constructor(
     private val runsStarted = AtomicLong(0L)
     private val runsFinished = MutableStateFlow(0L)
 
-    // From a request's receipt until the worker waits for the next one: a
-    // run is pending or going, its retries' backoff included.
-    @Volatile
-    private var busy = false
+    /**
+     * True while a run is pending or going, its retries' backoff included;
+     * false while the worker waits for a request, including after it gave
+     * up. A mutation sets it under the gate's lock before it bumps the
+     * generation, and the worker clears it under the same lock only when no
+     * request waits, so a mutation's run, or the one following a discarded
+     * run, never shows as idle: false behind a mutation means the worker
+     * gave up on it.
+     */
+    val rebuilding: StateFlow<Boolean>
+        get() = rebuildingState
+    private val rebuildingState = MutableStateFlow(false)
 
     init {
         // Undispatched, so the load holds the gate's lock before anything can
@@ -132,9 +140,13 @@ class HomeSnapshotRepository @Inject constructor(
         appScope.launch(start = CoroutineStart.UNDISPATCHED) {
             load()
             while (true) {
-                busy = false
-                requests.receive()
-                busy = true
+                // Idle only with no request waiting, checked under the lock a
+                // mutation marks its run pending under (see [rebuilding]).
+                val waiting = mutationMutex.withLock {
+                    requests.tryReceive().isSuccess.also { waiting -> if (!waiting) rebuildingState.value = false }
+                }
+                if (!waiting) requests.receive()
+                rebuildingState.value = true
                 // A failed run is retried after each backoff, or at once on a
                 // newer request, and then waits for the next request.
                 var retries = 0
@@ -172,6 +184,9 @@ class HomeSnapshotRepository @Inject constructor(
                     diagnosticsLogger.warning(TAG, "home_data_mutation_generation_failed", throwable)
                     throw throwable
                 }
+                // Before the bump: an observation that sees the new
+                // generation sees its run pending, not a worker that gave up.
+                rebuildingState.value = true
                 generationState.value = generation
                 diagnosticsLogger.info(
                     TAG,
@@ -219,7 +234,7 @@ class HomeSnapshotRepository @Inject constructor(
      * racing the worker's give-up is lost; the next minute asks again.
      */
     fun requestRebuildIfIdle() {
-        if (!busy) requestRebuild()
+        if (!rebuildingState.value) requestRebuild()
     }
 
     /**

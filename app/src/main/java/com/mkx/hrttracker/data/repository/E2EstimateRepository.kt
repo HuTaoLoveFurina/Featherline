@@ -47,9 +47,18 @@ enum class E2Pending { USER, SYSTEM }
  * admitted, null until the first. [pending] is set from a mutation's commit
  * until its run publishes, and while the estimate for a newer key is being
  * derived: [E2Pending.USER] exactly when the inputs' generation is newer than
- * the one behind [value].
+ * the one behind [value]. A hold on a run the worker gave up on releases,
+ * keeping [value].
  */
 data class E2State<T>(val value: T?, val pending: E2Pending? = null)
+
+/** One state of an observation's inputs: the current ones, or null behind a mutation or while missing. */
+private data class Observed(
+    val current: E2InputsRecord?,
+    val behind: Boolean,
+    val generation: Long,
+    val minute: LocalDateTime,
+)
 
 /** The calibration page's estimate section: the fit as the page renders it, and the lab flags beside it. */
 data class CalibrationEstimate(
@@ -136,7 +145,9 @@ class E2EstimateRepository @Inject constructor(
      * resume, ahead after the clock or the zone moved back. A value, once
      * shown, is kept while a newer one is pending, including while a
      * mutation's run hasn't published: that gap is [E2Pending.USER] too,
-     * from the commit, so the hold covers the run.
+     * from the commit, so the hold covers the run. If the worker gives up
+     * on that run, the hold releases and the value stays; the minute's
+     * re-asks for the same generation don't hold again.
      */
     fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = observe(
         now = now,
@@ -174,6 +185,9 @@ class E2EstimateRepository @Inject constructor(
         var shownKey: K? = null
         // The generation of the inputs behind the value.
         var shownGeneration = 0L
+        // The generation whose run the worker gave up on: its hold released,
+        // and the minute's re-asks for it run silently.
+        var releasedGeneration = -1L
         // Only a trigger: [now]'s own minute can be a cached one.
         val minutes = now
             .map { currentMinute(clock) }
@@ -186,9 +200,9 @@ class E2EstimateRepository @Inject constructor(
                 minutes,
             ) { cache, generation, minute ->
                 val behind = cache.generation != generation
-                Triple(cache.e2Inputs?.takeIf { !behind }, behind, minute)
+                Observed(cache.e2Inputs?.takeIf { !behind }, behind, generation, minute)
             }
-                .transformLatest { (current, behind, minute) ->
+                .transformLatest { (current, behind, generation, minute) ->
                     val zoneId = ZoneId.systemDefault()
                     if (current == null) {
                         // Behind a mutation, or missing: nothing to derive
@@ -200,8 +214,19 @@ class E2EstimateRepository @Inject constructor(
                         homeSnapshotRepository.requestRebuildIfIdle()
                         // Every gated mutation is a change someone made: a
                         // shown value holds from its commit, through the run.
-                        val pending = if (behind && state.value != null) E2Pending.USER else null
-                        state = state.copy(pending = pending)
+                        val holds = behind && state.value != null && generation != releasedGeneration
+                        state = state.copy(pending = if (holds) E2Pending.USER else null)
+                        emit(state)
+                        if (!holds) return@transformLatest
+                        // Until the worker gives up on the run: the value
+                        // stays, and the minute's re-asks for this generation
+                        // run silently. A mutation marks its run pending
+                        // before the bump, so this never sees the worker idle
+                        // before it took the run up. A wait, not an input:
+                        // the worker going idle must not ask again at once.
+                        homeSnapshotRepository.rebuilding.first { rebuilding -> !rebuilding }
+                        releasedGeneration = generation
+                        state = state.copy(pending = null)
                         emit(state)
                         return@transformLatest
                     }
