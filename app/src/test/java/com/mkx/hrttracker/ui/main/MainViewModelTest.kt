@@ -1788,8 +1788,9 @@ class MainViewModelTest {
         // Saved from a screen covering Home: the hold starts, but its minimum
         // waits for Home to be visible.
         homeEstimates.value = homeEstimates.value.copy(pending = E2Pending.USER)
-        advanceTimeBy(1_000L)
+        runCurrent()
         assertTrue(viewModel.uiState.value.isUpdating)
+        advanceTimeBy(1_000L)
         viewModel.setScreenVisible(true)
         runCurrent()
         advanceTimeBy(100L)

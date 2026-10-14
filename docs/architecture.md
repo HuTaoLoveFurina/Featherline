@@ -679,13 +679,12 @@ was last collected.
   `holdWhileUpdating` (`util/HoldWhileUpdating.kt`), for at least
   `UPDATING_MIN_HOLD_MILLIS` counted from when the screen is visible;
   `Held.latest` carries the newest value through the hold. The hold
-  starts at the mutation's commit and covers the worker's run, so the
-  run's reads and re-solve never show a stale estimate without the
-  indicator. The indicator appears only after `UPDATING_GRACE_MILLIS`,
-  so an update that lands within it, such as a memoized key, swaps
-  silently with no minimum hold, and an estimate that lands while the
-  screen is hidden releases at once. The
-  dose and lab lists show the change at once, and so does the hero's
+  and the indicator start at the mutation's commit and cover the
+  worker's run, so the run's reads and re-solve never show a stale
+  estimate without the indicator, and even an update that lands at once,
+  such as a memoized key, shows it for the minimum. An estimate that
+  lands while the screen is hidden releases at once. The dose and lab
+  lists show the change at once, and so does the hero's
   last-dose line, which is live Room data. Home builds the screen from
   the latest inputs and the E2 hero, chart and band from the held
   estimate, both at the live time and display unit, so a unit switch or
@@ -696,8 +695,8 @@ was last collected.
   without the indicator.
 - **Nothing to swap** for a change that doesn't move the key, such as a
   stock recount, a renamed medicine, an antiandrogen dose or a journal
-  pin: the hold covers its run and releases at the publish, with no
-  indicator unless the run outlasts the grace.
+  pin: the hold and the indicator cover its run and release at the
+  publish, after at least the minimum hold.
 
 The Settings calibration row and the widget never show a skeleton: they
 keep their last value and update it in place.
