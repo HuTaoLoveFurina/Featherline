@@ -26,7 +26,7 @@ sequenceDiagram
   Scheduler->>AlarmManager: setExactAndAllowWhileIdle(RTC_WAKEUP, T)
   AlarmManager-->>Receiver: ACTION_MEDICATION_REMINDER at T
   Receiver->>Handler: showDoseReminderNotification(bundle)
-  Receiver->>Scheduler: rescheduleGroup(after = T + 1s)
+  Receiver->>Scheduler: rescheduleGroup(after = max(T + 1s, now))
   Handler->>Notifier: post via NotificationManagerCompat
   Notifier-->>User: rendered notification
   User->>Handler: Log all / Remind later / tap
@@ -122,9 +122,11 @@ Each calls `goAsync()` and launches work on the application-scope
   — fires on the scheduled alarm itself (`ACTION_MEDICATION_REMINDER`,
   not-exported). Reads the `EXTRA_GROUP_UUID` and `EXTRA_SCHEDULED_AT`
   extras, builds the bundle of unfulfilled slots at that exact
-  `scheduledAt`, posts the notification, and then asks the scheduler to
-  reschedule the same group one second after the fired time so the
-  next occurrence is queued without a race.
+  `scheduledAt`, or at the group's latest due time when that is later
+  (see [Edge cases](#edge-cases)), posts the notification, and then
+  asks the scheduler to reschedule the same group one second after that
+  time, or from now when that is later, so the next occurrence is
+  queued without a race.
 - [`MedicationReminderActionReceiver`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/reminder/MedicationReminderActionReceiver.kt)
   — fires for user actions (`ACTION_MEDICATION_REMINDER_LOG_NOW`,
   `ACTION_MEDICATION_REMINDER_REMIND_LATER`) and for the snooze-fire
@@ -432,3 +434,12 @@ per group) that the store keeps only the bare set of active group UUIDs.
   full-rebuild path, which cancels the outgoing alarm and re-plans
   from scratch. `clearStaleSnoozesForGroup` runs at the same time to
   drop snoozes whose `scheduleTimeUuid` no longer matches.
+- **Clock moved forward, or a late delivery.** When an alarm arrives
+  after its group's next slot has also passed, the reminder names the
+  group's latest due time instead of the alarm's, so logging from it
+  saves the dose against the slot that is due. A group that shares the
+  reminder's time but is due again since is left out of it: its own
+  alarm names that later time. The next alarm is set from now: from
+  `T + 1s`, each past slot would fire at once and re-arm the next, one
+  notification for every slot in between. Earlier missed doses get no
+  reminder of their own; today's show as overdue on Home.

@@ -8,6 +8,7 @@ import com.mkx.hrttracker.data.repository.MedicationGroupRepository
 import com.mkx.hrttracker.data.repository.MedicationLogRepository
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.di.AppScope
+import com.mkx.hrttracker.model.medication.previousScheduledForBefore
 import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -69,6 +70,7 @@ class MedicationReminderReceiver : BroadcastReceiver() {
         handleDoseReminder(
             groupUuid = groupUuid,
             scheduledAt = scheduledAt,
+            now = LocalDateTime.now(),
             deadline = deadline,
             appScope = appScope,
             settingsRepository = settingsRepository,
@@ -83,10 +85,15 @@ class MedicationReminderReceiver : BroadcastReceiver() {
     }
 }
 
-/** Posts the dose reminder for [scheduledAt] and finishes the broadcast once it is done. */
+/**
+ * Posts the dose reminder for [scheduledAt], or for the group's latest due
+ * time when that is later, and finishes the broadcast once it is done.
+ */
 internal fun handleDoseReminder(
     groupUuid: UUID,
     scheduledAt: LocalDateTime,
+    /** When the broadcast was received. */
+    now: LocalDateTime,
     /** The end of the broadcast's budget, counted from its receipt. */
     deadline: TimeMark,
     appScope: CoroutineScope,
@@ -112,10 +119,19 @@ internal fun handleDoseReminder(
             }
 
             val groups = medicationGroupRepository.getGroups()
-            val entries = medicationLogRepository.getScheduledGroupEntriesSince(scheduledAt)
+            // Delivered late, or after the clock moved ahead: the dose due now,
+            // the group's latest past time, and not each time in between.
+            val slotAt = groups.firstOrNull { group -> group.uuid == groupUuid }
+                ?.previousScheduledForBefore(now)
+                ?.takeIf { latest -> latest.isAfter(scheduledAt) }
+                ?: scheduledAt
+            val entries = medicationLogRepository.getScheduledGroupEntriesSince(slotAt)
             val bundle = buildMedicationReminderBundle(
-                scheduledAt = scheduledAt,
-                groups = groups,
+                scheduledAt = slotAt,
+                // A group due again since slotAt gets its own, later reminder.
+                groups = groups.filterNot { group ->
+                    group.previousScheduledForBefore(now)?.isAfter(slotAt) == true
+                },
                 entries = entries,
             )
             if (bundle != null) {
@@ -126,28 +142,23 @@ internal fun handleDoseReminder(
                 diagnosticsLogger.info(
                     TAG,
                     "reminder_receiver_notification_shown groupUuid=$groupUuid " +
-                            "scheduledAt=$scheduledAt groups=${groups.size} entries=${entries.size} " +
+                            "slotAt=$slotAt groups=${groups.size} entries=${entries.size} " +
                             "items=${bundle.items.size}"
                 )
             } else {
                 diagnosticsLogger.info(
                     TAG,
                     "reminder_receiver_notification_skipped reason=no_bundle groupUuid=$groupUuid " +
-                            "scheduledAt=$scheduledAt groups=${groups.size} entries=${entries.size}"
+                            "slotAt=$slotAt groups=${groups.size} entries=${entries.size}"
                 )
             }
 
-            medicationReminderScheduler.rescheduleGroup(
-                groupUuid = groupUuid,
-                after = scheduledAt.plusSeconds(1)
-            )
+            // Not before now: a slot in the past would fire at once.
+            val after = maxOf(slotAt.plusSeconds(1), now)
+            medicationReminderScheduler.rescheduleGroup(groupUuid = groupUuid, after = after)
             diagnosticsLogger.info(
                 TAG,
-                "reminder_receiver_reschedule_requested groupUuid=$groupUuid after=${
-                    scheduledAt.plusSeconds(
-                        1
-                    )
-                }"
+                "reminder_receiver_reschedule_requested groupUuid=$groupUuid after=$after"
             )
             // The slot is no longer planned, so Home's estimate moved: store
             // the new one before the user opens the app, within what is left
