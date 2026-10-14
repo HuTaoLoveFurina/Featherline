@@ -83,7 +83,7 @@ import kotlin.math.roundToLong
 private val Context.homeSnapshotDataStore: DataStore<EncryptedRecordState<HomeSnapshotRecord>> by dataStore(
     fileName = "home_snapshot.pb",
     serializer = EncryptedRecordSerializer(
-        crypto = AndroidHomeSnapshotCrypto(),
+        crypto = AndroidHomeSnapshotCrypto,
         name = "home_snapshot",
         encode = HomeSnapshotCodec::encode,
         decode = HomeSnapshotCodec::decode,
@@ -93,7 +93,7 @@ private val Context.homeSnapshotDataStore: DataStore<EncryptedRecordState<HomeSn
 private val Context.homeE2InputsDataStore: DataStore<EncryptedRecordState<E2InputsRecord>> by dataStore(
     fileName = "home_e2_inputs.pb",
     serializer = EncryptedRecordSerializer(
-        crypto = AndroidHomeSnapshotCrypto(),
+        crypto = AndroidHomeSnapshotCrypto,
         name = "home_e2_inputs",
         encode = HomeSnapshotCodec::encodeE2Inputs,
         decode = HomeSnapshotCodec::decodeE2Inputs,
@@ -103,7 +103,7 @@ private val Context.homeE2InputsDataStore: DataStore<EncryptedRecordState<E2Inpu
 private val Context.homeE2EstimateDataStore: DataStore<EncryptedRecordState<HomeE2EstimateRecord>> by dataStore(
     fileName = "home_e2_estimate.pb",
     serializer = EncryptedRecordSerializer(
-        crypto = AndroidHomeSnapshotCrypto(),
+        crypto = AndroidHomeSnapshotCrypto,
         name = "home_e2_estimate",
         encode = HomeSnapshotCodec::encodeHomeEstimate,
         decode = HomeSnapshotCodec::decodeHomeEstimate,
@@ -1253,10 +1253,16 @@ internal interface HomeSnapshotCrypto {
     fun decrypt(ciphertext: ByteArray): ByteArray
 }
 
-private class AndroidHomeSnapshotCrypto : HomeSnapshotCrypto {
+// One instance for all three files: they share one Keystore alias and their
+// first writes and reads run concurrently on separate DataStore threads. Two
+// racing generateKey() calls would rebind the alias and orphan whichever file
+// was sealed first, so the key is fetched or generated once, under lazy's lock.
+private object AndroidHomeSnapshotCrypto : HomeSnapshotCrypto {
+    private val masterKey: SecretKey by lazy { getOrCreateMasterKey() }
+
     override fun encrypt(plaintext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey())
+        cipher.init(Cipher.ENCRYPT_MODE, masterKey)
         val encryptedBytes = cipher.doFinal(plaintext)
         val iv = cipher.iv
         return ByteBuffer
@@ -1292,7 +1298,7 @@ private class AndroidHomeSnapshotCrypto : HomeSnapshotCrypto {
         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
         cipher.init(
             Cipher.DECRYPT_MODE,
-            getOrCreateMasterKey(),
+            masterKey,
             GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv),
         )
         return cipher.doFinal(encryptedBytes)
