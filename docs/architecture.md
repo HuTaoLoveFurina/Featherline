@@ -345,7 +345,9 @@ both installed in `SingletonComponent`:
   process `onStart`, and `MedicationReminderRescheduleReceiver` refreshes it
   synchronously for `TIME_SET` / `TIMEZONE_CHANGED` broadcasts so foreground
   Home UI and timezone notices update without a lifecycle round trip (the
-  per-minute ticker is paused while no UI is subscribed).
+  per-minute ticker is paused while no UI is subscribed). `currentSnapshot.value`
+  and each new collector's first value are a fresh clock read, so the first
+  frame after a resume never uses the paused ticker's last minute.
 
 Consumer pattern: `@AndroidEntryPoint` on `MainActivity` and the
 reminder broadcast receivers; `@HiltViewModel` on ViewModels. The
