@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dose reminders now show the date and time of the dose they're for, so two reminders for the same group are easy to tell apart.
 - When you come back to the app after the estimate has moved, for example after a planned dose's time passed with reminders off, the estradiol card and chart can show a loading placeholder for a moment before the new estimate appears. The calibration page can show its loading indicator for a moment the same way, for example when you come back to it after midnight.
 - The app no longer works out your estimate calibration again each time it starts or you change something. It does so only when something the calibration uses changes (your estradiol results or how you reviewed them, your estradiol doses or your weight), after an app update that changes how estimates are worked out, or when you tap Try again.
 - The Estimate calibration section and the estimate sheet on Home now use the same estradiol doses as the Home chart, with days that start at midnight like it, so where they overlap they show the same band. Near the ends of the calibration page's range, its estimate can differ very slightly from before.

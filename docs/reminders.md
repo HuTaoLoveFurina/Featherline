@@ -371,7 +371,9 @@ exist solely so the scheduler knows what to cancel.
 - [`ReminderNotificationText.kt`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/reminder/ReminderNotificationText.kt)
   builds the localised title and body from the bundle: single group
   gets the group name; two groups get a "A and B" template; three or
-  more get "A, B and N more" via a plural resource. The output is a
+  more get "A, B and N more" via a plural resource. The notification's
+  subtext names the dose's date and time, so two reminders for one
+  group, say a snoozed dose and a later one, read differently. The output is a
   `ReminderNotificationText` with a `@StringRes` title and a sealed
   `ReminderNotificationBody` so the manager can resolve strings
   against the right `Context`.
