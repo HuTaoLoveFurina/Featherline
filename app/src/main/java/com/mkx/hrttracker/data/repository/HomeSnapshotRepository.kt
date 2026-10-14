@@ -728,9 +728,10 @@ private fun E2InputsRecord.diagnosticSummary(): String {
 }
 
 // Bumped to 9 with the Oct 2026 estradiol PK refit so every install rebuilt its cached
-// projections and calibration on the first open after the update. A PK refit now bumps
-// PK_ENGINE_VERSION instead: a schema bump alone rebuilds Home data but keeps the E2
-// inputs and their fit, which only the engine version invalidates.
+// projections and calibration on the first open after the update. A PK or calibration
+// change now bumps PK_ENGINE_VERSION instead, which drops the E2 inputs part, so the next
+// run re-solves. A bump here, like a Home data codec bump, drops Home data only: the run
+// reuses the fit published in the still-valid E2 inputs part.
 internal const val HOME_SNAPSHOT_SCHEMA_VERSION = 9
 
 private const val TAG = "HomeSnapshotRepository"

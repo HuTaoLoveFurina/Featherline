@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
     fun widgetSnapshotStore(): WidgetSnapshotStore
+    fun widgetSnapshotRepository(): WidgetSnapshotRepository
     fun homeSnapshotRepository(): HomeSnapshotRepository
     fun e2EstimateRepository(): E2EstimateRepository
     fun journalRepository(): JournalRepository

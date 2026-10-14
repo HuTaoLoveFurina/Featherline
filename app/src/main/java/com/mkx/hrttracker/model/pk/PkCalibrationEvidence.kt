@@ -38,7 +38,6 @@ data class PkCalibrationIncludedLab(
 
 class PkCalibrationEvidencePool internal constructor(
     val input: PkCalibrationInput,
-    internal val forwardModel: PkE2ForwardModel,
     /** Sorted by result id for deterministic accumulation. */
     val included: List<PkCalibrationIncludedLab>,
     val ignored: Map<UUID, PkCalibrationLabIgnoreReason>,
@@ -68,7 +67,7 @@ object PkCalibrationEvidenceAdapter {
                 included += PkCalibrationIncludedLab(lab.resultId, lab.valuePgml, breakdown!!)
             }
         }
-        return PkCalibrationEvidencePool(input, forwardModel, included, ignored)
+        return PkCalibrationEvidencePool(input, included, ignored)
     }
 
     /** Null means the lab joins the fit. */

@@ -41,6 +41,7 @@ data class WidgetPkProjectionRecord(
     val generatedAtEpochMillis: Long,
     val windowStartEpochMillis: Long,
     val windowEndEpochMillis: Long,
+    // Always the window end now, so it changes nothing the widget renders; drop it at the next schema bump.
     val pkProjectionExpiresAtEpochMillis: Long,
     val concentrationUnit: String,
     val timeH: List<Double>,

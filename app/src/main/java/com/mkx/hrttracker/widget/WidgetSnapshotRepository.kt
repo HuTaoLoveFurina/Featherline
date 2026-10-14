@@ -11,6 +11,8 @@ import com.mkx.hrttracker.util.AppDiagnosticsLogger
 import com.mkx.hrttracker.util.localizedShortTimeFormatter
 import com.mkx.hrttracker.util.uses24HourTimeFormat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.Locale
@@ -26,6 +28,10 @@ class WidgetSnapshotRepository @Inject constructor(
     private val widgetSnapshotStore: WidgetSnapshotStore,
     private val diagnosticsLogger: AppDiagnosticsLogger = AppDiagnosticsLogger(),
 ) {
+    // The cache observer, the settings refresh and the 15-minute worker each
+    // write from a state they read earlier: one write at a time.
+    private val writeMutex = Mutex()
+
     suspend fun refreshWidgetSnapshot(now: LocalDateTime = LocalDateTime.now()) {
         // Re-derives the widget snapshot from the current state — used when widget-only
         // inputs (e.g. theme, scale, alpha, E2 unit) change and Home data itself doesn't
@@ -45,16 +51,24 @@ class WidgetSnapshotRepository @Inject constructor(
     }
 
     /**
-     * Writes the widget from [state] when it has both parts: its rows from the
-     * Home data, its estimate from the E2 inputs published with it. Returns
-     * false, and leaves the widget as it is, when either part is missing.
+     * Writes the widget from [state] while it is still the cache's latest
+     * current state and has both parts: its rows from the Home data, its
+     * estimate from the E2 inputs published with it. Returns false, and leaves
+     * the widget as it is, otherwise.
      */
     suspend fun writeWidgetSnapshot(
         state: HomeCacheState,
         now: LocalDateTime = LocalDateTime.now(),
-    ): Boolean {
-        val homeData = state.homeData ?: return false
-        val e2Inputs = state.e2Inputs ?: return false
+    ): Boolean = writeMutex.withLock {
+        // Checked under the lock, so a slow write of an older state never lands
+        // after a newer one's. Identity, not only the generation: the midnight
+        // and zone-change runs publish at the same generation, and a state read
+        // before them must not overwrite their rows.
+        val latest = homeSnapshotRepository.cache.value === state &&
+                state.generation == homeSnapshotRepository.generation.value
+        val homeData = state.homeData
+        val e2Inputs = state.e2Inputs
+        if (!latest || homeData == null || e2Inputs == null) return@withLock false
         val zoneId = ZoneId.systemDefault()
         val settings = settingsRepository.getCurrentSettings()
         // Wrap with an explicitly-localized context so context.getString() inside the
@@ -81,7 +95,7 @@ class WidgetSnapshotRepository @Inject constructor(
             "widget_snapshot_refreshed rows=${widgetSnapshot.doseRows.size} " +
                     "done=${widgetSnapshot.doneCount} total=${widgetSnapshot.totalCount}",
         )
-        return true
+        true
     }
 
     private fun Context.withAppLocale(settings: SettingsState): Context {

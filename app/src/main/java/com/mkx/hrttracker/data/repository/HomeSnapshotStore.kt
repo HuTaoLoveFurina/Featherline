@@ -1327,8 +1327,8 @@ private const val TAG = "HomeSnapshotStore"
 
 // v15 carries MedicineStock inside cached Medicine values; older caches are
 // rejected by codec-version mismatch so tracked stock is never defaulted away.
-// v17 appends the deduped pkEntries pool so the snapshot path can re-simulate
-// the E2 curve locally when the cached projection expires.
+// v17 appends the deduped pkEntries pool, so the snapshot path could re-simulate
+// the E2 curve locally (v29 moves the entries to the E2 inputs).
 // v18 appends archivedGroups (after activeGroups) so Home/widget mirror Plan.
 // v19 appends doseAmountDelta to medication log entries for stock deltas.
 // v20 appends importedFromExternalTracker to cached Medicine and adds imported
@@ -1342,8 +1342,11 @@ private const val TAG = "HomeSnapshotStore"
 // latest estradiol entry moves up from the projection.
 // v29 holds Home data only: the E2 inputs, the fit and the engine version
 // move to home_e2_inputs.pb, and the widget's projection goes.
+// A bump drops Home data only: the next run reuses the fit published in the
+// still-valid E2 inputs part.
 private const val SNAPSHOT_CODEC_VERSION = 29
-// The E2 inputs record's own version, separate from the snapshot's.
+// The E2 inputs record's own version, separate from the snapshot's. A bump
+// drops the inputs part, fit included, so the next run re-solves.
 private const val E2_INPUTS_CODEC_VERSION = 1
 // The Home E2 estimate record's own version, separate from the snapshot's.
 private const val HOME_E2_ESTIMATE_CODEC_VERSION = 1

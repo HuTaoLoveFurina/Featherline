@@ -25,8 +25,8 @@ fun calibrationDoseWindowStartEpochMillis(labs: List<PkCalibrationLab>): Long? =
     labs.minOfOrNull { it.collectedAtEpochMillis }?.minus(PK_CALIBRATION_DOSE_LOOKBACK.toMillis())
 
 /**
- * The one calibration input recipe: the Home snapshot build solves from it,
- * and its fitId tells when the stored fit can stand in for the solve. A dose
+ * The one calibration input recipe: the rebuild worker's run solves from it,
+ * and its fitId tells when the published fit can stand in for the solve. A dose
  * entry that cannot become a PK event is skipped, the same way the Home
  * projection skips it, instead of turning calibration off.
  */
@@ -39,7 +39,7 @@ fun buildPkCalibrationInput(
     val windowStart = calibrationDoseWindowStartEpochMillis(labs) ?: Long.MIN_VALUE
     val allEstradiolEntries = entries.filter { it.category == MedicationCategory.ESTRADIOL }
     // Every dose older than the window: keep the latest so the state reads as
-    // labs below the modeled signal, not as no dose logged. The snapshot build
+    // labs below the modeled signal, not as no dose logged. The worker's run
     // reads the window plus the latest dose, so it always has this entry.
     val estradiolEntries = allEstradiolEntries
         .filter { it.appliedAt.toEpochMilli() >= windowStart }

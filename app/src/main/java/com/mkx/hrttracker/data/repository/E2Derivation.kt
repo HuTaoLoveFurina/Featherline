@@ -30,9 +30,10 @@ import java.time.ZoneId
 import kotlin.math.roundToLong
 
 /**
- * Bumped with any change to PK math or calibration. It is part of every
- * estimate key and of the fit's identity, so nothing an older engine derived
- * or solved is reused.
+ * Bumped with any change to PK math or calibration. The E2 inputs part is
+ * valid only from this engine, so a bump drops it and the next run re-solves.
+ * It is also part of every estimate key and of the fit's identity, so nothing
+ * an older engine derived or solved is reused.
  */
 const val PK_ENGINE_VERSION = 1
 
@@ -408,9 +409,8 @@ object E2Derivation {
 }
 
 // Visible chart window for the selected option: the range the calibration
-// status describes. Used by validation; intentionally narrower than the
-// projection window so a snapshot whose end is past the chart end (but inside
-// the cache buffer) is still usable. Reads only the date of `now`.
+// status describes, narrower than the projection window, which runs
+// MainChartProjectionFutureBufferDays past it. Reads only the date of `now`.
 internal data class HomePkChartWindow(
     val windowStartEpochMillis: Long,
     val windowEndEpochMillis: Long,

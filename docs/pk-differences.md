@@ -88,7 +88,7 @@ should read the upstream README and its `pk_research/` workspace.
   paths share the strategy but differ in which "exact" instants they
   pin.
 - **Option-aware chart-window rounding contract.**
-  `simulateMainEstradiolProjection` rounds the projection-cache window
+  `simulateMainEstradiolProjection` rounds the projection window
   to local midnight in `zoneId`: start = today minus `option.pastDays`
   at 00:00, end = today plus `option.projectionFutureDays()` at
   00:00. `projectionFutureDays()` adds a 10-day forward buffer beyond
@@ -107,13 +107,15 @@ should read the upstream README and its `pk_research/` workspace.
   only under the exact key it was derived for, deriving it again
   whenever the key moves: a planned dose passing, midnight, or a data
   change. There is no fallback simulation; see
-  [`architecture.md#home-snapshot-and-pk-projection-cache`](architecture.md#home-snapshot-and-pk-projection-cache).
+  [`architecture.md#home-snapshot-and-e2-estimate`](architecture.md#home-snapshot-and-e2-estimate).
   The widget's smaller seven-day projection is derived the same way
-  (`E2EstimateRepository.widgetEstimate`, logged doses only), and the
-  widget consumes it via
+  (`E2EstimateRepository.widgetEstimate`, keyed by `WidgetEstimateKey`,
+  logged doses only), from the E2 inputs published with the Home data
+  the widget's rows come from.
   [`WidgetSnapshotBuilder`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/widget/WidgetSnapshotBuilder.kt)
-  with its own expiry check on the widget render path. Upstream has
-  no equivalent because it has no persistent home snapshot.
+  stores it in the widget's own record, whose render path shows a value
+  only while the stored window covers the widget's seven-day chart.
+  Upstream has no equivalent because it has no persistent home snapshot.
 - **Active-mg conversion on the data path.** Upstream resolves dose
   events directly inside its simulator. Featherline computes the
   per-event active-mg-as-E2 upstream of the simulator in
@@ -661,8 +663,9 @@ multiplies that route's population contribution by `e^{beta_r}`.
   `e2_calibration_metadata`, `AUTO` as no row; see [data-model.md](data-model.md).
   `REVIEWED` only hides the review tip and never changes the fit.
 
-The fit runs entirely on device, inside the Home snapshot build, so the
-Home chart, the band, and the widgets all draw from the same adjusted
+The fit runs entirely on device, in the Home rebuild worker, which solves
+only when the published fit can't stand in, so the Home chart and band,
+the calibration page and the widgets all draw from the same adjusted
 parameters. Hipparchus supplies the bisection and Brent root solvers,
 Cholesky decomposition, Gauss-Hermite integration, and the Student-t
 distribution (the band uses the closed-form t4 CDF, falling back to the
@@ -674,7 +677,7 @@ dense multi-route chart costs a few hundred solves at most.
 
 ## What Featherline plans to change
 
-The PK engine swap gates three deferred refactors, all enumerated in
+The PK engine swap gates one deferred refactor, listed in
 [`architecture.md#known-limitations-and-planned-refactors`](architecture.md#known-limitations-and-planned-refactors):
 
 - Consolidate the fragmented PK math (constants, three-compartment
@@ -682,9 +685,6 @@ The PK engine swap gates three deferred refactors, all enumerated in
   [`DoseInstructionCalculator`](https://github.com/mkx173/Featherline/blob/main/app/src/main/java/com/mkx/hrttracker/model/medication/DoseInstructionCalculator.kt)'s
   overlapping molecular-weight constants collapse into one source of
   truth.
-- Untangle the calibration fit and the widget's projection from
-  `HomeSnapshotRepository` so unrelated home mutations stop
-  re-simulating the widget's curve.
 
 ## Out of scope
 

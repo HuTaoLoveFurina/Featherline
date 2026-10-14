@@ -487,8 +487,9 @@ class E2DerivationTest {
             bandFailed.copy(bandState = PkCalibrationBandState.READY),
             bandFailed.copy(effectivePromotedRoutes = listOf(PkCalibrationRoute.INJECTION)),
             numericUnavailable.copy(renderState = PkCalibrationRenderState.POPULATION),
-            ready.renderFor(
-                checkNotNull(PkChartDomain.create(input.originEpochMillis, labs.last().collectedAtEpochMillis, 21_600_000L))
+            evaluationRender(
+                ready, input,
+                checkNotNull(PkChartDomain.create(input.originEpochMillis, labs.last().collectedAtEpochMillis, 21_600_000L)),
             ),
         )
         val cases = evaluations.map { evaluation -> evaluation.isReady to evaluation.result } +
@@ -590,7 +591,8 @@ class E2DerivationTest {
         assertEquals(listOf(PkCalibrationRoute.ORAL), evaluation.result.supportedPromotedRoutes)
         val nowMillis = noon.atZone(zoneId).toInstant().toEpochMilli()
         val old = checkNotNull(
-            evaluation.renderFor(
+            evaluationRender(
+                evaluation, input,
                 domain = checkNotNull(
                     PkChartDomain.create(
                         rangeStartEpochMillis = nowMillis - 17L * 86_400_000L,
@@ -761,7 +763,8 @@ class E2DerivationTest {
         val startMillis = curve.windowStart.toEpochMilli()
         val endMillis = curve.windowEnd.toEpochMilli()
         fun millisOf(hours: Double) = startMillis + (hours * 3_600_000.0).roundToLong()
-        val render = evaluation.renderFor(
+        val render = evaluationRender(
+            evaluation, input,
             domain = checkNotNull(
                 PkChartDomain.create(
                     rangeStartEpochMillis = startMillis,
@@ -794,6 +797,24 @@ class E2DerivationTest {
             .orEmpty()
         return bandKnots to todaysStatus(evaluation.isReady, evaluation.result, render)
     }
+
+    // The evaluation's render as the build and the old page drew it: its fit,
+    // with the input it was solved from. Null unless READY.
+    private fun evaluationRender(
+        evaluation: PkCalibrationEvaluation,
+        input: PkCalibrationInput,
+        domain: PkChartDomain,
+        doseEvents: List<PkDoseEvent> = input.doseEvents,
+        statusRange: LongRange = domain.rangeStartEpochMillis..domain.rangeEndEpochMillis,
+    ): PkCalibrationRenderResult? = PkCalibrationRenderer.render(
+        result = evaluation.result,
+        originEpochMillis = input.originEpochMillis,
+        weightKg = input.weightKg,
+        config = input.config,
+        domain = domain,
+        doseEvents = doseEvents,
+        statusRange = statusRange,
+    )
 
     // The hero record exactly as buildAndWriteHomeSnapshot built it inline,
     // from the evaluation's isReady.

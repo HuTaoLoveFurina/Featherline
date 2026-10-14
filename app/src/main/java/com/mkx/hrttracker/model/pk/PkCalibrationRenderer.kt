@@ -16,38 +16,14 @@ import kotlin.math.sqrt
 /** Pure central-curve and predictive-band rendering for one exact chart domain. */
 object PkCalibrationRenderer {
     /**
-     * [doseEvents] defaults to the fitted history; Home passes logged plus
-     * planned doses so the band follows the same projected curve the chart
-     * draws. The fit (and its covariance) is unaffected either way.
-     * [statusRange] is the visible part of [domain] the status describes;
-     * Home's domain runs past its chart to cache the forecast.
-     */
-    fun render(
-        evaluation: PkCalibrationEvaluation,
-        domain: PkChartDomain,
-        doseEvents: List<PkDoseEvent> = evaluation.evidence?.input?.doseEvents.orEmpty(),
-        statusRange: LongRange = domain.rangeStartEpochMillis..domain.rangeEndEpochMillis,
-    ): PkCalibrationRenderResult? {
-        val evidence = evaluation.evidence ?: return null
-        val input = evidence.input
-        return render(
-            result = evaluation.result,
-            originEpochMillis = input.originEpochMillis,
-            weightKg = input.weightKg,
-            config = input.config,
-            domain = domain,
-            doseEvents = doseEvents,
-            statusRange = statusRange,
-            // The fitted history's model was built by the solve.
-            forwardModel = evidence.forwardModel.takeIf { doseEvents === input.doseEvents },
-        )
-    }
-
-    /**
-     * [render] for a stored fit, without the evidence pool of its solve:
-     * [doseEvents] are relative to the fit's [originEpochMillis], and
-     * [weightKg] and [config] are the ones it was solved with. Null unless
-     * [result] is READY, as for a non-READY evaluation.
+     * The render of a stored fit: [doseEvents] are relative to its
+     * [originEpochMillis], and [weightKg] and [config] are the ones it was
+     * solved with. Home passes logged plus planned doses so the band follows
+     * the same projected curve the chart draws; the fit (and its covariance)
+     * is unaffected either way. [statusRange] is the visible part of [domain]
+     * the status describes; Home's domain, its projection window, runs past
+     * its chart. Null unless [result] is READY; a numeric render failure is a
+     * NUMERIC_UNAVAILABLE result.
      */
     fun render(
         result: PkCalibrationResult,
@@ -59,25 +35,7 @@ object PkCalibrationRenderer {
         statusRange: LongRange = domain.rangeStartEpochMillis..domain.rangeEndEpochMillis,
     ): PkCalibrationRenderResult? {
         if (result.globalState != PkCalibrationGlobalState.READY) return null
-        return render(
-            result, originEpochMillis, weightKg, config, domain, doseEvents, statusRange,
-            forwardModel = null,
-        )
-    }
-
-    private fun render(
-        result: PkCalibrationResult,
-        originEpochMillis: Long,
-        weightKg: Double,
-        config: PkCalibrationConfig,
-        domain: PkChartDomain,
-        doseEvents: List<PkDoseEvent>,
-        statusRange: LongRange,
-        forwardModel: PkE2ForwardModel?,
-    ): PkCalibrationRenderResult {
-        val model = forwardModel
-            ?: PkE2ForwardModel.create(doseEvents, weightKg)
-            ?: return NumericUnavailable
+        val model = PkE2ForwardModel.create(doseEvents, weightKg) ?: return NumericUnavailable
 
         val knots = TreeSet(domain.knotEpochMillis)
         for (event in doseEvents) {
