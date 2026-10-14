@@ -72,8 +72,9 @@ trailing area.
 which the widget does not carry. The PK projection is the widget's E2
 estimate. `E2EstimateRepository.widgetEstimate` derives it when the
 record is built, from the E2 inputs published in the same cache state
-as the Home data the rows come from, so the rows and the estimate always
-describe one run. It reads logged doses only, over seven days whatever
+as the Home data the rows come from, so the rows and the estimate
+describe one run, except after a failed derivation, which keeps the last
+estimate written. It reads logged doses only, over seven days whatever
 Home's chart option, so a planned dose never inflates the reading, and
 it is keyed like Home's estimate (`WidgetEstimateKey`): a rebuild whose
 inputs don't move the key reuses the last derivation. It is stored as a
@@ -357,7 +358,12 @@ graph TD
   published with them. From a mutation until its run publishes there is
   no current state, and while a part is missing nothing is written: the
   widget keeps its last snapshot, estimate included, and is never
-  cleared for that.
+  cleared for that. When the estimate's derivation fails, the rows are
+  still written, with the last snapshot's estimate. `WidgetEstimateKey`
+  moves at midnight, so a failure that doesn't repeat is replaced the
+  next day; until then the widget draws the old estimate while its
+  seven-day chart stays inside that estimate's window, at most about
+  ten days after it was derived.
 - **Widget-facing settings changes.** The same manager observes
   `settingsRepository.settingsState`, projects it to the tuple
   (`hideMedicationDetails`, `adaptiveColorEnabled`,

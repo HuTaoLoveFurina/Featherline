@@ -25,7 +25,11 @@ import java.util.Locale
 internal fun buildWidgetSnapshotRecord(
     context: Context,
     homeSnapshot: HomeSnapshotRecord,
-    /** The widget's E2 estimate at [now] (E2EstimateRepository.widgetEstimate); null shows none. */
+    /**
+     * The widget's E2 estimate at [now] (E2EstimateRepository.widgetEstimate).
+     * Null builds none; WidgetSnapshotRepository.writeWidgetSnapshot then
+     * keeps the stored one.
+     */
     widgetEstimate: PkProjectionResult?,
     settings: SettingsState,
     now: LocalDateTime,

@@ -53,8 +53,9 @@ class WidgetSnapshotRepository @Inject constructor(
     /**
      * Writes the widget from [state] while it is still the cache's latest
      * current state and has both parts: its rows from the Home data, its
-     * estimate from the E2 inputs published with it. Returns false, and leaves
-     * the widget as it is, otherwise.
+     * estimate from the E2 inputs published with it, or the last one written
+     * when that derivation fails. Returns false, and leaves the widget as it
+     * is, otherwise.
      */
     suspend fun writeWidgetSnapshot(
         state: HomeCacheState,
@@ -79,15 +80,26 @@ class WidgetSnapshotRepository @Inject constructor(
             locale = Locale.forLanguageTag(settings.appLanguageOption.languageTag),
             uses24HourFormat = context.uses24HourTimeFormat(),
         )
-        val widgetSnapshot = buildWidgetSnapshotRecord(
+        val widgetEstimate = e2EstimateRepository.widgetEstimate(e2Inputs, now)
+        val built = buildWidgetSnapshotRecord(
             context = localizedContext,
             homeSnapshot = homeData,
-            widgetEstimate = e2EstimateRepository.widgetEstimate(e2Inputs, now),
+            widgetEstimate = widgetEstimate,
             settings = settings,
             now = now,
             zoneId = zoneId,
             timeFormatter = timeFormatter,
         )
+        // Null only when the derivation threw, and memoized until its key
+        // moves, at midnight at the latest: the rows update under the last
+        // estimate written rather than blank it. The widget draws that one
+        // until its chart leaves the estimate's window, at most about ten
+        // days after it was derived.
+        val widgetSnapshot = if (widgetEstimate != null) {
+            built
+        } else {
+            built.copy(pkProjection = widgetSnapshotStore.readSnapshot()?.pkProjection)
+        }
         widgetSnapshotStore.writeSnapshot(widgetSnapshot)
         pushHrtWidgets(context, widgetSnapshot)
         diagnosticsLogger.info(

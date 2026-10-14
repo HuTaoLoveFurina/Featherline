@@ -9,6 +9,7 @@ import com.mkx.hrttracker.data.repository.HomeSnapshotRecord
 import com.mkx.hrttracker.data.repository.HomeSnapshotRepository
 import com.mkx.hrttracker.data.repository.SettingsRepository
 import com.mkx.hrttracker.model.pk.HomeE2ChartWindowOption
+import com.mkx.hrttracker.model.pk.PkProjectionResult
 import com.mkx.hrttracker.model.settings.SettingsState
 import com.mkx.hrttracker.util.uses24HourTimeFormat
 import io.mockk.coEvery
@@ -28,6 +29,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
@@ -53,10 +55,16 @@ class WidgetSnapshotRepositoryTest {
         coEvery { getCurrentSettings() } returns SettingsState()
     }
 
-    // Each record written, by the tag of the state it was built from.
+    // The stored record, and each record written, by the tag of the state it
+    // was built from.
+    private var stored: WidgetSnapshotRecord? = null
     private val written = mutableListOf<String>()
     private val widgetSnapshotStore = mockk<WidgetSnapshotStore> {
-        coEvery { writeSnapshot(any()) } answers { written += firstArg<WidgetSnapshotRecord>().zoneId }
+        coEvery { readSnapshot() } answers { stored }
+        coEvery { writeSnapshot(any()) } answers {
+            stored = firstArg()
+            written += firstArg<WidgetSnapshotRecord>().zoneId
+        }
     }
     private val repository = WidgetSnapshotRepository(
         context = mockk(relaxed = true),
@@ -70,27 +78,17 @@ class WidgetSnapshotRepositoryTest {
     @Before
     fun setUp() {
         // The record's builder and the push need the app's resources; the
-        // builder stub carries the state's tag into the record.
+        // builder stub carries the state's tag into the record, and a derived
+        // estimate as [derivedProjection].
         mockkStatic("com.mkx.hrttracker.widget.HrtWidgetKt")
         coEvery { pushHrtWidgets(any(), any()) } returns Unit
         mockkStatic("com.mkx.hrttracker.util.AppDateTimeFormattersKt")
         every { any<Context>().uses24HourTimeFormat() } returns true
         mockkStatic("com.mkx.hrttracker.widget.WidgetSnapshotBuilderKt")
         every { buildWidgetSnapshotRecord(any(), any(), any(), any(), any(), any(), any()) } answers {
-            WidgetSnapshotRecord(
-                schemaVersion = WIDGET_SNAPSHOT_SCHEMA_VERSION,
-                zoneId = secondArg<HomeSnapshotRecord>().zoneId,
-                anchorDateEpochDay = today.toEpochDay(),
-                doneCount = 0,
-                totalCount = 0,
-                manualCount = 0,
-                hasActiveGroups = false,
-                hideMedicationDetails = false,
-                adaptiveColorEnabled = false,
-                e2DisplayUnit = "pg_ml",
-                appLanguageTag = "en",
-                doseRows = emptyList(),
-                pkProjection = null,
+            record(
+                tag = secondArg<HomeSnapshotRecord>().zoneId,
+                pkProjection = thirdArg<PkProjectionResult?>()?.let { derivedProjection },
             )
         }
     }
@@ -208,6 +206,35 @@ class WidgetSnapshotRepositoryTest {
         assertEquals(listOf("midnight-run"), written)
     }
 
+    @Test
+    fun aFailedEstimate_keepsTheLastOne_whileTheRowsUpdate() = runTest {
+        // The derivation threw, and stays failed under its key until midnight,
+        // an estradiol dose, the weight or the fit moves it. A row that turns
+        // due meanwhile is still written, under the last estimate.
+        stored = record(tag = "upcoming", pkProjection = lastProjection)
+        val dueSoon = state(generation = 0L, tag = "due-soon")
+        cache.value = dueSoon
+
+        assertTrue(repository.writeWidgetSnapshot(dueSoon, now))
+
+        assertEquals(listOf("due-soon"), written)
+        assertEquals(lastProjection, stored?.pkProjection)
+    }
+
+    @Test
+    fun aDerivedEstimate_replacesTheLastOne() = runTest {
+        stored = record(tag = "before-the-log", pkProjection = lastProjection)
+        coEvery { estimates.widgetEstimate(any(), any()) } returns mockk()
+        val afterTheLog = state(generation = 1L, tag = "after-the-log")
+        generation.value = 1L
+        cache.value = afterTheLog
+
+        assertTrue(repository.writeWidgetSnapshot(afterTheLog, now))
+
+        assertEquals(listOf("after-the-log"), written)
+        assertEquals(derivedProjection, stored?.pkProjection)
+    }
+
     /** The 15-minute worker with stale rows: no record at all. */
     private suspend fun refreshFromTheWorker() = handleWidgetDailyRefresh(
         now = now,
@@ -216,6 +243,38 @@ class WidgetSnapshotRepositoryTest {
         widgetSnapshotRepository = repository,
         e2EstimateRepository = mockk(relaxed = true),
         rerender = {},
+    )
+
+    // What the builder stub writes for a derived estimate, and an older one.
+    private val derivedProjection = projection(windowEndEpochMillis = 2_000L)
+    private val lastProjection = projection(windowEndEpochMillis = 1_000L)
+
+    private fun projection(windowEndEpochMillis: Long) = WidgetPkProjectionRecord(
+        generatedAtEpochMillis = 0L,
+        windowStartEpochMillis = 0L,
+        windowEndEpochMillis = windowEndEpochMillis,
+        pkProjectionExpiresAtEpochMillis = windowEndEpochMillis,
+        concentrationUnit = "PG_PER_ML",
+        timeH = emptyList(),
+        concentrations = emptyList(),
+        doseMarkers = emptyList(),
+    )
+
+    // The tag stands in for the rows.
+    private fun record(tag: String, pkProjection: WidgetPkProjectionRecord?) = WidgetSnapshotRecord(
+        schemaVersion = WIDGET_SNAPSHOT_SCHEMA_VERSION,
+        zoneId = tag,
+        anchorDateEpochDay = today.toEpochDay(),
+        doneCount = 0,
+        totalCount = 0,
+        manualCount = 0,
+        hasActiveGroups = false,
+        hideMedicationDetails = false,
+        adaptiveColorEnabled = false,
+        e2DisplayUnit = "pg_ml",
+        appLanguageTag = "en",
+        doseRows = emptyList(),
+        pkProjection = pkProjection,
     )
 
     // The tag stands in for the rows: the builder stub copies it into the record.
