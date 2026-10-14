@@ -44,9 +44,10 @@ enum class E2Pending { USER, SYSTEM }
 
 /**
  * An estimate observation. [value] is the last estimate it derived or
- * admitted, null until the first. [pending] is set while the estimate for a
- * newer key is being derived: [E2Pending.USER] exactly when its inputs'
- * generation is newer than the one behind [value].
+ * admitted, null until the first. [pending] is set from a mutation's commit
+ * until its run publishes, and while the estimate for a newer key is being
+ * derived: [E2Pending.USER] exactly when the inputs' generation is newer than
+ * the one behind [value].
  */
 data class E2State<T>(val value: T?, val pending: E2Pending? = null)
 
@@ -133,7 +134,8 @@ class E2EstimateRepository @Inject constructor(
      * is a fresh read too, never [now]'s own value, which can be a cached
      * minute: behind after a resume, ahead after the clock or the zone moved
      * back. A value, once shown, is kept while a newer one is pending,
-     * including while a mutation's run hasn't published.
+     * including while a mutation's run hasn't published: that gap is
+     * [E2Pending.USER] too, from the commit, so the hold covers the run.
      */
     fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = observe(
         now = now,
@@ -182,8 +184,11 @@ class E2EstimateRepository @Inject constructor(
                 homeSnapshotRepository.cache.filterNotNull(),
                 homeSnapshotRepository.generation,
                 minutes,
-            ) { cache, generation, minute -> cache.e2Inputs?.takeIf { cache.generation == generation } to minute }
-                .transformLatest { (current, minute) ->
+            ) { cache, generation, minute ->
+                val behind = cache.generation != generation
+                Triple(cache.e2Inputs?.takeIf { !behind }, behind, minute)
+            }
+                .transformLatest { (current, behind, minute) ->
                     val zoneId = ZoneId.systemDefault()
                     val starting = first
                     first = false
@@ -193,13 +198,16 @@ class E2EstimateRepository @Inject constructor(
                         // first state asks for one, the retry after a failed
                         // run; a mutation seen later asks for its own.
                         if (starting) homeSnapshotRepository.requestRebuild()
-                        state = state.copy(pending = null)
+                        // Every gated mutation is a change someone made: a
+                        // shown value holds from its commit, through the run.
+                        val pending = if (behind && state.value != null) E2Pending.USER else null
+                        state = state.copy(pending = pending)
                         emit(state)
                         return@transformLatest
                     }
                     val key = keyOf(current.e2Inputs(), minute, zoneId)
                     if (key == shownKey) {
-                        // A change the estimate doesn't read: nothing pending.
+                        // A change the estimate doesn't read: settled, the hold released.
                         shownGeneration = current.generation
                         state = state.copy(pending = null)
                         emit(state)

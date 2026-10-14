@@ -622,11 +622,12 @@ memo at the next start.
   current and the memo already holds their key; otherwise the screen
   shows a skeleton until the estimate is derived, and an observation
   whose inputs aren't current asks for a run. A running observation
-  keeps its value while a newer one is derived, and `E2State.pending`
-  says why: `USER` when the inputs' generation is newer than the one
-  behind the value (a committed mutation), `SYSTEM` otherwise (the
-  clock, midnight, a zone change, a system run), and nothing when the
-  key doesn't move. The calibration page's section is never stored, so a
+  keeps its value from a mutation's commit until its run publishes, and
+  while a newer one is derived, and `E2State.pending` says why: `USER`
+  when the inputs' generation is newer than the one behind the value (a
+  committed mutation, its run included), `SYSTEM` otherwise (the clock,
+  midnight, a zone change, a system run), and nothing once the value is
+  settled. The calibration page's section is never stored, so a
   process's first observation derives it.
 - **The widget.** `widgetEstimate(record, now)` derives the widget's
   curve from the E2 inputs published with the Home data the widget
@@ -658,14 +659,18 @@ was last collected.
   clock: Home's E2 hero, chart, band and calibration notes, and the
   calibration page's estimate section, show a skeleton until it is
   derived. A background job usually warmed it first.
-- **Hold.** In the foreground, a change the user made moves the key
-  (`USER`). Both screens keep their settled estimate and show
+- **Hold.** In the foreground, a change the user made commits a gated
+  mutation (`USER`). Both screens keep their settled estimate and show
   `TopUpdatingIndicator` until the new one lands, through
   `holdWhileUpdating` (`util/HoldWhileUpdating.kt`), for at least
   `UPDATING_MIN_HOLD_MILLIS` counted from when the screen is visible;
   `Held.latest` carries the newest value through the hold. The hold
-  starts at the worker's publish, a moment after the tap, and an
-  estimate that lands while the screen is hidden releases at once. The
+  starts at the mutation's commit and covers the worker's run, so the
+  run's reads and re-solve never show a stale estimate without the
+  indicator. The indicator appears only after `UPDATING_GRACE_MILLIS`,
+  so an update that lands within it, such as a memoized key, swaps
+  silently with no minimum hold, and an estimate that lands while the
+  screen is hidden releases at once. The
   dose and lab lists show the change at once, and so does the hero's
   last-dose line, which is live Room data. Home builds the screen from
   the latest inputs and the E2 hero, chart and band from the held
@@ -675,8 +680,10 @@ was last collected.
   (`SYSTEM`): a planned slot passing, midnight, a zone change. The
   screens keep the estimate and swap to the new one once it is derived,
   without the indicator.
-- **Nothing** for a change that doesn't move the key, such as a stock
-  recount, a renamed medicine, an antiandrogen dose or a journal pin.
+- **Nothing to swap** for a change that doesn't move the key, such as a
+  stock recount, a renamed medicine, an antiandrogen dose or a journal
+  pin: the hold covers its run and releases at the publish, with no
+  indicator unless the run outlasts the grace.
 
 The Settings calibration row and the widget never show a skeleton: they
 keep their last value and update it in place.

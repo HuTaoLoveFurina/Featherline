@@ -272,17 +272,17 @@ class E2EstimateRepositoryTest {
 
         // A mutation commits while its run is paused (or fails): the old
         // inputs and the stored estimate still match each other, but the
-        // inputs are behind the durable generation.
+        // inputs are behind the durable generation. The shown value holds,
+        // a change someone made.
         generation.value = 1L
         runCurrent()
-        assertSame(shown, running.last().value)
-        assertNull(running.last().pending)
+        assertEquals(E2State(shown, E2Pending.USER), running.last())
 
-        // A screen coming to the foreground meanwhile shows the skeleton, and
-        // asks for a run.
+        // A screen coming to the foreground meanwhile shows the skeleton, with
+        // nothing to hold, and asks for a run.
         val returned = observe(estimates)
         runCurrent()
-        assertTrue(returned.all { state -> state.value == null })
+        assertTrue(returned.all { state -> state == E2State<HomeE2Estimate>(null) })
         verify(exactly = 1) { homeSnapshotRepository.requestRebuild() }
         assertSame(shown, running.last().value)
         assertEquals(0, derivations)
@@ -341,7 +341,7 @@ class E2EstimateRepositoryTest {
     }
 
     @Test
-    fun aChangeTheEstimateDoesntRead_hasNothingPending() = runTest {
+    fun aChangeTheEstimateDoesntRead_holdsFromItsCommit_andReleasesAtThePublish() = runTest {
         publish(record())
         val estimates = estimates()
         val states = observe(estimates)
@@ -349,17 +349,18 @@ class E2EstimateRepositoryTest {
         val shown = checkNotNull(states.last().value)
         val before = states.size
 
-        // A stock recount: a gated change whose E2 inputs are the same.
+        // A stock recount: a gated change whose E2 inputs are the same. Held
+        // through its run; the key doesn't move, so the publish releases it.
         generation.value = 1L
+        runCurrent()
         publish(record(generation = 1L))
         runCurrent()
-        assertEquals(before, states.size)
-        assertSame(shown, states.last().value)
+        assertEquals(listOf(E2State(shown, E2Pending.USER), E2State(shown, null)), states.drop(before))
 
         // And the clock after it is still the system's, not the user's.
         setNow(afterSlot)
         runCurrent()
-        assertEquals(E2State(shown, E2Pending.SYSTEM), states[before])
+        assertEquals(E2State(shown, E2Pending.SYSTEM), states[before + 2])
         assertEquals(1 + 1, derivations)
     }
 
@@ -729,7 +730,7 @@ class E2EstimateRepositoryTest {
     }
 
     @Test
-    fun calibration_aChangeTheEstimateDoesntRead_hasNothingPending() = runTest {
+    fun calibration_aChangeTheEstimateDoesntRead_holdsFromItsCommit_andReleasesAtThePublish() = runTest {
         publish(record(fit = solvedFit(epoch = 0)))
         val estimates = estimates()
         val states = observeCalibration(estimates)
@@ -737,16 +738,16 @@ class E2EstimateRepositoryTest {
         val shown = checkNotNull(states.last().value)
         val before = states.size
 
-        // A stock recount, its stored fit reused; then the morning slot
-        // passing, which moves Home's key but not the page's.
+        // A stock recount, its stored fit reused, held through its run; then
+        // the morning slot passing, which moves Home's key but not the page's.
         generation.value = 1L
+        runCurrent()
         publish(record(generation = 1L, fit = solvedFit(epoch = 0)))
         runCurrent()
         setNow(afterSlot)
         runCurrent()
 
-        assertEquals(before, states.size)
-        assertSame(shown, states.last().value)
+        assertEquals(listOf(E2State(shown, E2Pending.USER), E2State(shown, null)), states.drop(before))
         assertEquals(1, calibrationRenders)
     }
 

@@ -18,7 +18,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, graceMillis = 0L) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -55,7 +55,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, settled = "seed" to false) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 800L, graceMillis = 0L, settled = "seed" to false) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -81,7 +81,7 @@ class HoldWhileUpdatingTest {
         val source = MutableSharedFlow<Pair<String, Boolean>>()
         val shown = mutableListOf<Triple<String, String, Long>>()
         val job = launch {
-            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 400L, settled = "old" to false) { (_, updating) -> updating }
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 400L, graceMillis = 0L, settled = "old" to false) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.latest.first, testScheduler.currentTime) }
         }
         runCurrent()
@@ -108,7 +108,7 @@ class HoldWhileUpdatingTest {
         val visible = MutableStateFlow(false)
         val shown = mutableListOf<Triple<String, Boolean, Long>>()
         val job = launch {
-            source.holdWhileUpdating(visible, minHoldMillis = 400L, settled = "old" to false) { (_, updating) -> updating }
+            source.holdWhileUpdating(visible, minHoldMillis = 400L, graceMillis = 0L, settled = "old" to false) { (_, updating) -> updating }
                 .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
         }
         runCurrent()
@@ -133,6 +133,58 @@ class HoldWhileUpdatingTest {
                 Triple("new", false, 100L),
                 Triple("new", true, 100L),
                 Triple("next", false, 700L),
+            ),
+            shown,
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun anUpdateThatSettlesWithinTheGrace_isReleasedAtOnce_withoutTheIndicator() = runTest {
+        val source = MutableSharedFlow<Pair<String, Boolean>>()
+        val shown = mutableListOf<Triple<String, Boolean, Long>>()
+        val job = launch {
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 400L, graceMillis = 150L, settled = "old" to false) { (_, updating) -> updating }
+                .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
+        }
+        runCurrent()
+
+        source.emit("gap" to true)
+        runCurrent()
+        advanceTimeBy(50L)
+        source.emit("deriving" to true) // the grace runs on from the first updating value
+        runCurrent()
+        advanceTimeBy(50L)
+        source.emit("memo hit" to false) // lands at 100 ms: no indicator, no minimum hold
+        advanceUntilIdle()
+
+        assertEquals(listOf(Triple("memo hit", false, 100L)), shown)
+        job.cancel()
+    }
+
+    @Test
+    fun anUpdateThatOutlastsTheGrace_showsTheIndicator_forTheMinimumHold() = runTest {
+        val source = MutableSharedFlow<Pair<String, Boolean>>()
+        val shown = mutableListOf<Triple<String, Boolean, Long>>()
+        val job = launch {
+            source.holdWhileUpdating(MutableStateFlow(true), minHoldMillis = 400L, graceMillis = 150L, settled = "old" to false) { (_, updating) -> updating }
+                .collect { held -> shown += Triple(held.value.first, held.isUpdating, testScheduler.currentTime) }
+        }
+        runCurrent()
+
+        source.emit("gap" to true)
+        runCurrent()
+        advanceTimeBy(100L)
+        source.emit("deriving" to true) // still within the grace begun at 0 ms
+        runCurrent()
+        advanceTimeBy(100L) // the indicator shows at 150 ms
+        source.emit("new" to false) // lands at 200 ms, released at 550 ms
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                Triple("old", true, 150L),
+                Triple("new", false, 550L),
             ),
             shown,
         )

@@ -18,12 +18,19 @@ data class Held<T>(val value: T, val isUpdating: Boolean, val latest: T = value)
 /** Long enough for the indicator to slide fully in before it leaves. */
 const val UPDATING_MIN_HOLD_MILLIS = 400L
 
+/** Short enough not to read as lag, long enough for a memoized swap to land within it. */
+const val UPDATING_GRACE_MILLIS = 150L
+
 /**
  * Keeps the last settled value on screen while [isUpdating] says a newer one
  * is being worked out, then releases the newest value once it settles, no
  * sooner than [minHoldMillis] after the screen was [visible] with the hold.
  * The values in between never show, and the content changes together with
  * the indicator leaving.
+ *
+ * The indicator shows only once the update has outlasted [graceMillis],
+ * counted from the first updating value: one that settles sooner swaps
+ * silently, at once, with no indicator and no minimum hold.
  *
  * Through a hold [Held.latest] carries the newest value, so a screen can hold
  * only the part that is re-solving (an estimate) and show the rest (a dose
@@ -44,22 +51,31 @@ const val UPDATING_MIN_HOLD_MILLIS = 400L
 fun <T : Any> Flow<T>.holdWhileUpdating(
     visible: StateFlow<Boolean>,
     minHoldMillis: Long = UPDATING_MIN_HOLD_MILLIS,
+    graceMillis: Long = UPDATING_GRACE_MILLIS,
     settled: T? = null,
     isUpdating: (T) -> Boolean,
 ): Flow<Held<T>> = channelFlow {
     var settled: T? = settled
     var minHold: Job? = null
+    // Its own job, so a newer updating value waits out the rest of it.
+    var grace: Job? = null
     collectLatest { value ->
         val shown = settled
         if (isUpdating(value)) {
             if (shown != null) {
-                if (minHold == null) minHold = launch {
-                    visible.first { it }
-                    delay(minHoldMillis)
+                if (minHold == null) {
+                    if (grace == null) grace = launch { delay(graceMillis) }
+                    grace?.join()
+                    minHold = launch {
+                        visible.first { it }
+                        delay(minHoldMillis)
+                    }
                 }
                 send(Held(shown, isUpdating = true, latest = value))
             }
         } else {
+            grace?.cancel()
+            grace = null
             if (!visible.value) minHold?.cancel()
             // A newer value cancels this wait and waits out the same hold.
             minHold?.join()
