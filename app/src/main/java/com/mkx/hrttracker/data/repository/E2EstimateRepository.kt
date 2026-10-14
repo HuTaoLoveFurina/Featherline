@@ -22,11 +22,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
@@ -124,14 +124,16 @@ class E2EstimateRepository @Inject constructor(
     }
 
     /**
-     * Home's estimate at [now]. Each observation starts cold: its first
-     * state, after the stored estimate's load, uses the published inputs and
-     * a fresh clock read, not [now]'s cached minute, which can lag on a
-     * resume. It admits a value only when those inputs are current and the
-     * memo has their key; otherwise it has none until the estimate is
-     * derived, and asks for a run when its first inputs aren't current. A
-     * value, once shown, is kept while a newer one is pending, including
-     * while a mutation's run hasn't published.
+     * Home's estimate, looked at again each time [now] emits. Each
+     * observation starts cold: its first state, after the stored estimate's
+     * load, uses the published inputs and a fresh clock read, and admits a
+     * value only when those inputs are current and the memo has their key;
+     * otherwise the observation has none until the estimate is derived, and
+     * asks for a run when its first inputs aren't current. Every later minute
+     * is a fresh read too, never [now]'s own value, which can be a cached
+     * minute: behind after a resume, ahead after the clock or the zone moved
+     * back. A value, once shown, is kept while a newer one is pending,
+     * including while a mutation's run hasn't published.
      */
     fun observeHome(now: Flow<LocalDateTime>): Flow<E2State<HomeE2Estimate>> = observe(
         now = now,
@@ -141,8 +143,9 @@ class E2EstimateRepository @Inject constructor(
     )
 
     /**
-     * The calibration page's estimate section at [now], under the same rules
-     * as [observeHome]: shared derivations, a cold start, nothing from inputs
+     * The calibration page's estimate section, looked at again each time
+     * [now] emits, under the same rules as [observeHome]: shared
+     * derivations, fresh clock reads, a cold start, nothing from inputs
      * that aren't current, [E2Pending.USER] for a change the user made. It
      * is never stored, so a process's first observation derives it. A render
      * that throws gives the numeric failure, which is kept like any other
@@ -164,15 +167,15 @@ class E2EstimateRepository @Inject constructor(
         onAdmitted: (T) -> Unit = {},
     ): Flow<E2State<T>> = flow {
         loaded.await()
-        val start = currentMinute(clock)
         var state = E2State<T>(null)
         var first = true
         var shownKey: K? = null
         // The generation of the inputs behind the value.
         var shownGeneration = 0L
+        // Only a trigger: [now]'s own minute can be a cached one.
         val minutes = now
-            .dropWhile { minute -> minute < start }
-            .onStart { emit(start) }
+            .map { currentMinute(clock) }
+            .onStart { emit(currentMinute(clock)) }
             .distinctUntilChanged()
         emitAll(
             combine(

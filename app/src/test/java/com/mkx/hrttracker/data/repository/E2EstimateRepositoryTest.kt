@@ -211,6 +211,32 @@ class E2EstimateRepositoryTest {
     }
 
     @Test
+    fun aCachedMinuteAheadOfTheClock_isNeverUsed() = runTest {
+        // After the clock or the zone moved back, the minute flow can still
+        // hold the later minute, from after the slot passed, until the time
+        // source re-reads the clock.
+        publish(record())
+        minutes.value = afterSlot
+        val ahead = storedFor(record(), afterSlot).estimate
+        val estimates = estimates()
+
+        val states = observe(estimates)
+        runCurrent()
+        assertEquals(1, derivations)
+        assertEquals(keyAt(record(), beforeSlot), stored?.key)
+        assertSame(stored?.estimate, states.last().value)
+
+        // The gated minute flow replays its cached value whenever the screen
+        // subscribes again, in the middle of an observation.
+        val before = states.size
+        minutes.value = afterSlot.plusMinutes(1)
+        runCurrent()
+        assertEquals(before, states.size)
+        assertEquals(1, derivations)
+        assertTrue(states.none { state -> state.value == ahead })
+    }
+
+    @Test
     fun aRestart_withAMovedKeyHasNoValue_andWithAMatchingKeyHasItAtOnce() = runTest {
         publish(record())
         val estimates = estimates()

@@ -614,17 +614,20 @@ still matches the current inputs and a fresh clock read, and seeds the
 memo at the next start.
 
 - **Observations.** `observeHome(minute)` and `observeCalibration(minute)`
-  start cold. The first state, after the stored estimate's load, uses
-  the published inputs and a fresh clock read, and has a value only when
-  those inputs are current and the memo already holds their key;
-  otherwise the screen shows a skeleton until the estimate is derived,
-  and an observation whose inputs aren't current asks for a run. A
-  running observation keeps its value while a newer one is derived, and
-  `E2State.pending` says why: `USER` when the inputs' generation is
-  newer than the one behind the value (a committed mutation), `SYSTEM`
-  otherwise (the clock, midnight, a zone change, a system run), and
-  nothing when the key doesn't move. The calibration page's section is
-  never stored, so a process's first observation derives it.
+  start cold. Every minute they use is a fresh clock read, and the
+  minute flow only says when to look again: its own value can be a
+  cached minute, behind after a resume and ahead after the clock or the
+  zone moved back. The first state, after the stored estimate's load,
+  uses the published inputs, and has a value only when those inputs are
+  current and the memo already holds their key; otherwise the screen
+  shows a skeleton until the estimate is derived, and an observation
+  whose inputs aren't current asks for a run. A running observation
+  keeps its value while a newer one is derived, and `E2State.pending`
+  says why: `USER` when the inputs' generation is newer than the one
+  behind the value (a committed mutation), `SYSTEM` otherwise (the
+  clock, midnight, a zone change, a system run), and nothing when the
+  key doesn't move. The calibration page's section is never stored, so a
+  process's first observation derives it.
 - **The widget.** `widgetEstimate(record, now)` derives the widget's
   curve from the E2 inputs published with the Home data the widget
   shows. The widget record keeps it, so it isn't stored here.
