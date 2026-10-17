@@ -269,11 +269,12 @@ should read the upstream README and its `pk_research/` workspace.
   by Aedo 1985's measured peak (fits 0.062) below and Düsterberg &
   Nishino 1982's 4 mg curve (needs 0.09–0.10, and integrates to more E2
   than the dose) above. Estrannaise and TFS give 0.68–0.94; GAHT Plotter
-  gives 0.81–1.55 and is not a valid exposure vote. The cypionate depot
-  is refit to Zhou 1998 and Rahimy 1999 (`fracFast 0.15`, `k1Fast 0.08`,
-  `k1Slow 0.0035`): upstream's two rates differed by 12%, so the depot
-  could not peak on day 1–2 as every study that sampled day 1 found. The
-  valerate and enanthate depots are unchanged; the two primary valerate
+  gives 0.81–1.55 and is not a valid exposure vote. The cypionate,
+  valerate and enanthate depots are upstream's. Cypionate's peaks on day
+  3.8, as Oriowo 1980 found for cypionate in oil; Zhou 1998 and Rahimy
+  1999 peak on day 1–2 but used the aqueous suspension in Cyclofem and
+  Lunelle, which releases differently, so they set only the exposure. The
+  two primary valerate
   curves disagree in opposite directions on its tail, and enanthate peaks
   within 7% of Schiavon's 6.3 days.
 - **Gel bioavailability is the 0.06% product on its label area, and gel
@@ -413,9 +414,12 @@ dose at this clearance, an upper bound; its 5 mg-scaled peak of 492–534
 needs 0.090–0.097 at 70 kg. The reference calculators give shares of
 0.695–0.926 (Estrannaise) and 0.680–0.936 (TFS); GAHT Plotter's EB
 (1.55) and EC (1.06) exceed 1 and are not used. Cypionate depot
-(`0.15 / 0.08 / 0.0035`): RMS residual against Zhou's trough-subtracted
-curve is 61 pg/mL for the old depot, 44 at k1Fast 0.04, 31 at 0.08.
-Enanthate's depot peaks at 5.9 d against Schiavon's 6.3 d. Valerate's
+(upstream's): 5 mg at 70 kg peaks at 154 pg/mL on day 3.8, against
+Oriowo's day 3.9 (2.4–6.2) in arachis oil and Aly's four-study oil fit of
+155 pg/mL at day 4.3. Zhou and Rahimy used the microcrystalline aqueous
+suspension (with MPA), which peaks on day 1–2; a refit to them
+(`0.15 / 0.08 / 0.0035`) was reverted because it modelled the wrong
+product. Enanthate's depot peaks at 5.9 d against Schiavon's 6.3 d. Valerate's
 two primaries disagree on its tail (Oriowo: baseline by day 7–8;
 Düsterberg & Nishino: 148 pg/mL at day 10), so its depot is unchanged.
 

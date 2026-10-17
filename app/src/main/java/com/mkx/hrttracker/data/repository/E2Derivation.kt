@@ -35,7 +35,7 @@ import kotlin.math.roundToLong
  * It is also part of every estimate key and of the fit's identity, so nothing
  * an older engine derived or solved is reused.
  */
-const val PK_ENGINE_VERSION = 1
+const val PK_ENGINE_VERSION = 2
 
 /** SHA-256 of a canonical [HomeSnapshotCodec] encoding; hex, so a key holding it compares by value. */
 data class Digest(val hex: String) {

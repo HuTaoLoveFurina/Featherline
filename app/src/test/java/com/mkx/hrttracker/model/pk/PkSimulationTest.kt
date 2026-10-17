@@ -152,9 +152,9 @@ class PkSimulationTest {
     }
 
     @Test
-    fun estradiolCypionate_peaksEarlyAndIsSpentByTwoWeeks() {
-        // Zhou 1998 and Rahimy 1999: 5 mg peaks on day 1-2 (about 200-250 pg/mL at ~58 kg) and is
-        // near baseline by day 14. 5 mg of cypionate is 3.43 mg of estradiol.
+    fun estradiolCypionateInOil_peaksAroundDayFour() {
+        // Oriowo 1980 (arachis oil): 5 mg peaks on day 3.9 (2.4-6.2); Aly's oil fit gives 155 pg/mL
+        // at day 4.3. 5 mg of cypionate is 3.43 mg of estradiol.
         val result = PkSimulationEngine(
             events = listOf(
                 PkDoseEvent(
@@ -172,13 +172,13 @@ class PkSimulationTest {
             startTimeH = 0.0,
             endTimeH = 28.0 * 24.0,
             numberOfSteps = 2,
-        ).run(sampleTimeH = listOf(24.0, 2.15 * 24.0, 4.0 * 24.0, 14.0 * 24.0, 28.0 * 24.0))
+        ).run(sampleTimeH = listOf(2.0 * 24.0, 3.8 * 24.0, 7.0 * 24.0, 14.0 * 24.0, 28.0 * 24.0))
 
-        val peak = requireNotNull(result.concentrationAt(2.15 * 24.0))
-        assertTrue(peak in 150.0..190.0)
-        assertTrue(peak > requireNotNull(result.concentrationAt(24.0)))
-        assertTrue(peak > requireNotNull(result.concentrationAt(4.0 * 24.0)))
-        assertTrue(requireNotNull(result.concentrationAt(14.0 * 24.0)) in 40.0..60.0)
+        val peak = requireNotNull(result.concentrationAt(3.8 * 24.0))
+        assertTrue(peak in 135.0..175.0)
+        assertTrue(peak > requireNotNull(result.concentrationAt(2.0 * 24.0)))
+        assertTrue(peak > requireNotNull(result.concentrationAt(7.0 * 24.0)))
+        assertTrue(requireNotNull(result.concentrationAt(14.0 * 24.0)) in 45.0..70.0)
         assertTrue(requireNotNull(result.concentrationAt(28.0 * 24.0)) < 25.0)
     }
 

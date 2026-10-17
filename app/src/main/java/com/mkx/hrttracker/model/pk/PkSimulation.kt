@@ -1346,12 +1346,17 @@ object PkCatalog {
         // by day 7-8) and Dusterberg & Nishino 1982 a longer tail (148 pg/mL at day 10); this
         // shape sits between them and peaks at day 2.3 against measured day 2-3.
         PkCompound.EV to TwoPartDepotParams(fracFast = 0.4, k1Fast = 0.0216, k1Slow = 0.0138),
-        // Fit to Zhou 1998 (5 mg Cyclofem: a day-1 spike over a flat day 3-7 shoulder in all three
-        // cycles) and Rahimy 1999 (peak 2.1 d, half-life 8.4 d). Upstream's two rates differed by
-        // 12%, i.e. one depot, which could not peak early without a 3x higher peak. Day 14 stays
-        // above the "spent by day 11-14" every source reports. Antiserum cross-reactivity with
-        // intact cypionate was never measured; if the day-1 spike is ester, drop the fast part.
-        PkCompound.EC to TwoPartDepotParams(fracFast = 0.15, k1Fast = 0.08, k1Slow = 0.0035),
+        // Cypionate in oil (Depo-Estradiol, home-brewed vials). Upstream's depot, effectively one
+        // rate: 5 mg at 70 kg peaks at 154 pg/mL on day 3.8, against Oriowo 1980 (arachis oil, peak
+        // day 3.9, 2.4-6.2) and Aly's four-study oil fit (155 pg/mL at day 4.3). Zhou 1998 and
+        // Rahimy 1999 peak on day 1-2, but both used the aqueous microcrystalline suspension
+        // (Cyclofem / Lunelle, with MPA), a different release; they inform the formation fraction,
+        // not this shape.
+        PkCompound.EC to TwoPartDepotParams(
+            fracFast = 0.229164549,
+            k1Fast = 0.005035046,
+            k1Slow = 0.004510574,
+        ),
         // Labels are inverted: the 5% "fast" part at 0.001/h is the slower one. Peaks at day 5.9
         // for 10 mg against Schiavon 1988's 6.3 d; back to baseline by day ~30.
         PkCompound.EN to TwoPartDepotParams(fracFast = 0.05, k1Fast = 0.001, k1Slow = 0.005),
